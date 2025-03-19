@@ -79,6 +79,7 @@ func processNotification(notification Notification, workerId int) {
 					Body:      notification.Body,
 					ImageURL:  notification.Image,
 					ChannelID: channelId,
+					Proxy:     messaging.ProxyDeny,
 				},
 				Data: data,
 			},
