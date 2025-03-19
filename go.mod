@@ -75,4 +75,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241223144023-3abc09e42ca8 // indirect
 )
 
+// TODO: Remove this when the Firebase Admin SDK is updated
 replace firebase.google.com/go/v4 => github.com/byungwoo-Nam/firebase-admin-go/v4 v4.15.3-0.20250317213953-637490006699
