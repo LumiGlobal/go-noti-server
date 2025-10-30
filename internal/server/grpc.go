@@ -2,14 +2,10 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"net"
 	"os"
-	"strings"
-	"time"
 
 	"go-noti-server/internal/log"
-	"go-noti-server/internal/notification"
 	pbh "go-noti-server/protos/health"
 	pb "go-noti-server/protos/notifications"
 
@@ -51,46 +47,7 @@ func RunGrpcServer() {
 }
 
 func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (*pb.NotificationResponse, error) {
-	startTime := time.Now()
-
-	if req.GetNotification() == nil {
-		log.InfoLogger.Println("Caught it")
-		return nil, status.Errorf(codes.InvalidArgument, "Empty Message")
-	}
-
-	data, err := json.Marshal(req.GetNotification().Data)
-	if err != nil {
-		log.ErrorLogger.Printf("Failed to serialize data: %v", err)
-		return nil, status.Errorf(codes.Internal, "Failed to serialize data")
-	}
-
-	notificationData := notification.Notification{
-		Message:        req.GetNotification().Message,
-		Title:          req.GetNotification().Title,
-		Body:           req.GetNotification().Body,
-		Image:          req.GetNotification().Image,
-		DeviceTokens:   strings.Join(req.GetNotification().DeviceTokens, ","),
-		AnalyticsLabel: req.GetNotification().AnalyticsLabel,
-		Data:           string(data),
-	}
-
-	err = notification.SaveNotification(notificationData)
-	if err != nil {
-		log.ErrorLogger.Printf("Failed to save notification: %v", err)
-		return nil, status.Errorf(codes.Internal, "Failed to save notification")
-	}
-
-	log.InfoLogger.Printf(
-		"Message: %s, Title: %s, Body: %s, Image: %s, Data: %+v",
-		notificationData.Message, notificationData.Title, notificationData.Body,
-		notificationData.Image, string(data),
-	)
-
-	endTime := time.Now()
-	duration := endTime.Sub(startTime)
-
-	log.InfoLogger.Printf("Request Time taken: %v\n", duration)
-
+	log.InfoLogger.Printf("Sudah sampai")
 	return &pb.NotificationResponse{Message: "Message Received"}, nil
 }
 
