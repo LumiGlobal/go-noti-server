@@ -5,9 +5,9 @@ import (
 	"net"
 	"os"
 
-	"go-noti-server/internal/log"
 	pbh "go-noti-server/protos/health"
 	pb "go-noti-server/protos/notifications"
+	"log"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -33,26 +33,25 @@ func RunGrpcServer() {
 	pb.RegisterNotificationServiceServer(s, &server{})
 	pbh.RegisterHealthServiceServer(s, &healthCheckServer{})
 
-	log.InfoLogger.Printf("server listening at %v\n", lis.Addr())
-	log.InfoLogger.Printf("server listening at %v\n", lis.Addr())
-	log.InfoLogger.Printf("Hello")
+	log.Printf("server listening at %v\n", lis.Addr())
+	log.Printf("server listening at %v\n", lis.Addr())
+	log.Printf("Hello")
 
 	if err != nil {
-		log.ErrorLogger.Fatalf("Failed to listen: %v", err)
+		log.Fatalf("Failed to listen: %v", err)
 	}
 
 	if err := s.Serve(lis); err != nil {
-		log.ErrorLogger.Fatalf("failed to serve: %v", err)
+		log.Fatalf("failed to serve: %v", err)
 	}
 }
 
 func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (*pb.NotificationResponse, error) {
-	log.InfoLogger.Printf("Sudah sampai")
 	return &pb.NotificationResponse{Message: "Message Received"}, nil
 }
 
 func (s *healthCheckServer) Check(ctx context.Context, req *pbh.HealthCheckRequest) (*pbh.HealthCheckResponse, error) {
-	log.InfoLogger.Printf("Sudah sampai")
+	log.Printf("Sudah sampai")
 	return &pbh.HealthCheckResponse{Message: "Alive"}, nil
 }
 
@@ -60,7 +59,7 @@ func AuthInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServe
 	// extract token from context
 	token := extractFromContext(ctx)
 	// validate token
-	log.InfoLogger.Println("auth intercept")
+	log.Println("auth intercept")
 	if !isTokenValid(token) {
 		return nil, status.Errorf(codes.Unauthenticated, "Token invalid")
 	}
