@@ -2,14 +2,14 @@ package main
 
 import (
 	"go-noti-server/config"
-	"go-noti-server/internal/log"
+	"go-noti-server/internal/apm"
+	"time"
 )
 
 func main() {
 	config.LoadEnv()
-	log.SetupLogger()
-	log.Logger.
-		Info().
-		Str("job_id", "123456699").
-		Msg("LOGGING")
+	apm.Init()
+	apm.Log.Info().Msg("TESTTTTTTTTTTTTTTTTTTTTTTT")
+	time.Sleep(1 * time.Minute)
+	apm.App.Shutdown(5 * time.Second)
 }
