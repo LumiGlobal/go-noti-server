@@ -2,13 +2,16 @@ package server
 
 import (
 	"context"
+	"fmt"
+	"go-noti-server/internal/nr"
 	"net"
 	"os"
 
 	pbh "go-noti-server/protos/health"
 	pb "go-noti-server/protos/notifications"
-	"log"
 
+	"github.com/newrelic/go-agent/v3/integrations/nrgrpc"
+	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -27,43 +30,52 @@ func RunGrpcServer() {
 	var (
 		port     = os.Getenv("PORT")
 		lis, err = net.Listen("tcp", port)
-		s        = grpc.NewServer(grpc.UnaryInterceptor(AuthInterceptor))
+		s        = grpc.NewServer(grpc.ChainUnaryInterceptor(nrgrpc.UnaryServerInterceptor(nr.App), AuthInterceptor))
 	)
 
 	pb.RegisterNotificationServiceServer(s, &server{})
 	pbh.RegisterHealthServiceServer(s, &healthCheckServer{})
 
-	log.Printf("server listening at %v\n", lis.Addr())
-	log.Printf("server listening at %v\n", lis.Addr())
-	log.Printf("Hello")
+	nr.Log(zerolog.InfoLevel, fmt.Sprintf("server listening at %v", lis.Addr()))
 
 	if err != nil {
-		log.Fatalf("Failed to listen: %v", err)
+		nr.Log(zerolog.FatalLevel, fmt.Sprintf("failed to listen: %v", err))
 	}
 
 	if err := s.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
+		nr.Log(zerolog.FatalLevel, fmt.Sprintf("failed to serve: %v", err))
 	}
 }
 
+func logNotificationPackage(ctx context.Context, notification *pb.NotificationPackage, msg string) {
+	logger := nr.ContextLogger(ctx)
+	logger.Info().
+		Str("title", notification.Title).
+		Str("body", notification.Body).
+		Str("path", notification.Data["path"]).
+		Str("contentId", notification.Data["contentId"]).
+		Str("contentType", notification.Data["contentType"]).
+		Msg(nr.MsgFormatter(ctx, msg))
+}
+
 func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (*pb.NotificationResponse, error) {
+	notification := req.GetNotification()
+	logNotificationPackage(ctx, notification, "received notification")
 	return &pb.NotificationResponse{Message: "Message Received"}, nil
 }
 
 func (s *healthCheckServer) Check(ctx context.Context, req *pbh.HealthCheckRequest) (*pbh.HealthCheckResponse, error) {
-	log.Printf("Sudah sampai")
 	return &pbh.HealthCheckResponse{Message: "Alive"}, nil
 }
 
 func AuthInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	// extract token from context
+	nr.LogWithContext(zerolog.InfoLevel, "auth intercept", ctx)
+
 	token := extractFromContext(ctx)
-	// validate token
-	log.Println("auth intercept")
 	if !isTokenValid(token) {
-		return nil, status.Errorf(codes.Unauthenticated, "Token invalid")
+		nr.LogWithContext(zerolog.WarnLevel, "invalid auth token", ctx)
+		return nil, status.Errorf(codes.Unauthenticated, "token invalid")
 	}
-	// handle it
 	return handler(ctx, req)
 }
 

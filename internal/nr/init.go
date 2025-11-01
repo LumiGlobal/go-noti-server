@@ -2,6 +2,7 @@ package nr
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"time"
@@ -26,7 +27,24 @@ func Init() {
 	}
 }
 
-func Logger() zerolog.Logger {
+func MsgFormatter(ctx context.Context, msg string) string {
+	traceID := newrelic.FromContext(ctx).GetTraceMetadata().TraceID
+	return fmt.Sprintf("[%v] %v", traceID, msg)
+}
+
+func LogWithContext(level zerolog.Level, msg string, ctx context.Context) {
+	txnlogger := ContextLogger(ctx)
+	txn := newrelic.FromContext(ctx)
+	metadata := txn.GetTraceMetadata()
+	txnlogger.WithLevel(level).Msg(fmt.Sprintf("[%v] %v", metadata.TraceID, msg))
+}
+
+func Log(level zerolog.Level, msg string) {
+	logger := getLogger()
+	logger.WithLevel(level).Msg(msg)
+}
+
+func getLogger() zerolog.Logger {
 	return zerolog.New(writer()).
 		Level(zerolog.InfoLevel).
 		With().
@@ -42,14 +60,14 @@ func writer() zerologWriter.ZerologWriter {
 	return zerologWriter.New(consoleWriter, App)
 }
 
-func TxnLogger(txn *newrelic.Transaction) zerolog.Logger {
+func txnLogger(txn *newrelic.Transaction) zerolog.Logger {
 	w := writer()
 	txnWriter := w.WithTransaction(txn)
-	return Logger().Output(txnWriter)
+	return getLogger().Output(txnWriter)
 }
 
-func TxnCtxLogger(ctx context.Context) zerolog.Logger {
+func ContextLogger(ctx context.Context) zerolog.Logger {
 	w := writer()
 	txnWriter := w.WithContext(ctx)
-	return Logger().Output(txnWriter)
+	return getLogger().Output(txnWriter)
 }
