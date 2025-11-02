@@ -8,12 +8,15 @@ require (
 	github.com/newrelic/go-agent/v3 v3.41.0
 	github.com/newrelic/go-agent/v3/integrations/logcontext-v2/zerologWriter v1.0.5
 	github.com/newrelic/go-agent/v3/integrations/nrgrpc v1.4.7
+	github.com/newrelic/go-agent/v3/integrations/nrredis-v9 v1.1.2
+	github.com/redis/go-redis/v9 v9.14.0
 	github.com/rs/zerolog v1.34.0
 	google.golang.org/grpc v1.76.0
 	google.golang.org/protobuf v1.36.10
 )
 
 require (
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
