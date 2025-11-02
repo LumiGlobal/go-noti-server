@@ -3,6 +3,7 @@ module go-noti-server
 go 1.25.3
 
 require (
+	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/joho/godotenv v1.5.1
 	github.com/newrelic/go-agent/v3 v3.41.0
 	github.com/newrelic/go-agent/v3/integrations/logcontext-v2/zerologWriter v1.0.5

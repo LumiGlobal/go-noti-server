@@ -10,6 +10,7 @@ import (
 	pbh "go-noti-server/protos/health"
 	pb "go-noti-server/protos/notifications"
 
+	"github.com/cespare/xxhash/v2"
 	"github.com/newrelic/go-agent/v3/integrations/nrgrpc"
 	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/rs/zerolog"
@@ -67,13 +68,20 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 
 	seg := txn.StartSegment("NotificationMarshalling")
 	logNotificationPackage(ctx, notification, zerolog.InfoLevel, "marshalling notification")
-	_, err := proto.Marshal(notification)
+	data, err := proto.Marshal(notification)
 	if err != nil {
 		msg := fmt.Sprintf("error marshalling notification: %v", err)
 		logNotificationPackage(ctx, notification, zerolog.ErrorLevel, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	seg.End()
+
+	seg = txn.StartSegment("HashingNotification")
+	logNotificationPackage(ctx, notification, zerolog.InfoLevel, "hashing notification")
+	hash := xxhash.Sum64(data)
+	seg.End()
+
+	fmt.Println(hash)
 
 	return &pb.NotificationResponse{Message: "Message Received"}, nil
 }
