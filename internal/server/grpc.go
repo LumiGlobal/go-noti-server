@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"go-noti-server/internal/nr"
+	"go-noti-server/internal/rd"
 	"net"
 	"os"
 
@@ -68,7 +69,8 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 
 	seg := txn.StartSegment("NotificationMarshalling")
 	logNotificationPackage(ctx, notification, zerolog.InfoLevel, "marshalling notification")
-	data, err := proto.Marshal(notification)
+	marshaller := proto.MarshalOptions{Deterministic: true}
+	data, err := marshaller.Marshal(notification)
 	if err != nil {
 		msg := fmt.Sprintf("error marshalling notification: %v", err)
 		logNotificationPackage(ctx, notification, zerolog.ErrorLevel, msg)
@@ -81,7 +83,18 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	hash := xxhash.Sum64(data)
 	seg.End()
 
-	fmt.Println(hash)
+	logNotificationPackage(ctx, notification, zerolog.InfoLevel, "adding notification hash to set")
+	result, err := rd.Client.SAdd(ctx, rd.JobIdSet, hash).Result()
+	if err != nil {
+		msg := fmt.Sprintf("error adding to job:id set: %v", err)
+		logNotificationPackage(ctx, notification, zerolog.ErrorLevel, msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	if result == 0 {
+		msg := "notification payload not unique"
+		logNotificationPackage(ctx, notification, zerolog.WarnLevel, msg)
+		return nil, status.Errorf(codes.AlreadyExists, msg)
+	}
 
 	return &pb.NotificationResponse{Message: "Message Received"}, nil
 }

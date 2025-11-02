@@ -14,6 +14,8 @@ var (
 	Client *redis.Client
 )
 
+const JobIdSet = "job:id"
+
 func Init() {
 	opts := &redis.Options{
 		Addr:         os.Getenv("REDIS_ADDR"),
