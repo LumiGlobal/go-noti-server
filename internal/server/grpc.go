@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"go-noti-server/internal/nr"
 	"go-noti-server/internal/rd"
-	"net"
-	"os"
-
 	pbh "go-noti-server/protos/health"
 	pb "go-noti-server/protos/notifications"
+	"net"
+	"os"
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/newrelic/go-agent/v3/integrations/nrgrpc"
@@ -51,7 +50,7 @@ func RunGrpcServer() {
 	}
 }
 
-func logNotificationPackage(ctx context.Context, notification *pb.NotificationPackage, level zerolog.Level, msg string) {
+func log(ctx context.Context, notification *pb.NotificationPackage, level zerolog.Level, msg string) {
 	logger := nr.ContextLogger(ctx)
 	logger.WithLevel(level).
 		Str("title", notification.Title).
@@ -65,35 +64,52 @@ func logNotificationPackage(ctx context.Context, notification *pb.NotificationPa
 func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (*pb.NotificationResponse, error) {
 	txn := newrelic.FromContext(ctx)
 	notification := req.GetNotification()
-	logNotificationPackage(ctx, notification, zerolog.InfoLevel, "received notification")
+	log(ctx, notification, zerolog.InfoLevel, "received notification")
 
 	seg := txn.StartSegment("NotificationMarshalling")
-	logNotificationPackage(ctx, notification, zerolog.InfoLevel, "marshalling notification")
+	log(ctx, notification, zerolog.InfoLevel, "marshalling notification")
 	marshaller := proto.MarshalOptions{Deterministic: true}
 	data, err := marshaller.Marshal(notification)
 	if err != nil {
 		msg := fmt.Sprintf("error marshalling notification: %v", err)
-		logNotificationPackage(ctx, notification, zerolog.ErrorLevel, msg)
+		log(ctx, notification, zerolog.ErrorLevel, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	seg.End()
 
 	seg = txn.StartSegment("HashingNotification")
-	logNotificationPackage(ctx, notification, zerolog.InfoLevel, "hashing notification")
+	log(ctx, notification, zerolog.InfoLevel, "hashing notification")
 	hash := xxhash.Sum64(data)
 	seg.End()
 
-	logNotificationPackage(ctx, notification, zerolog.InfoLevel, "adding notification hash to set")
+	log(ctx, notification, zerolog.InfoLevel, "adding notification hash to set")
 	result, err := rd.Client.SAdd(ctx, rd.JobIdSet, hash).Result()
 	if err != nil {
 		msg := fmt.Sprintf("ERROR ADDING job:id TO SET: %v", err)
-		logNotificationPackage(ctx, notification, zerolog.ErrorLevel, msg)
+		log(ctx, notification, zerolog.ErrorLevel, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	if result == 0 {
 		msg := "PAYLOAD NOT UNIQUE"
-		logNotificationPackage(ctx, notification, zerolog.WarnLevel, msg)
+		log(ctx, notification, zerolog.WarnLevel, msg)
 		return nil, status.Errorf(codes.AlreadyExists, msg)
+	}
+
+	key := txn.GetTraceMetadata().TraceID
+	log(ctx, notification, zerolog.InfoLevel, fmt.Sprintf("setting key %v to payload", key))
+	_, err = rd.Client.Set(ctx, key, data, 0).Result()
+	if err != nil {
+		msg := fmt.Sprintf("ERROR SETTING key %v TO PAYLOAD: %v", key, err)
+		log(ctx, notification, zerolog.ErrorLevel, msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+
+	log(ctx, notification, zerolog.InfoLevel, fmt.Sprintf("adding %v to jobs queue", key))
+	_, err = rd.Client.RPush(ctx, rd.JobsQueue, key).Result()
+	if err != nil {
+		msg := fmt.Sprintf("ERROR ADDING %v TO JOBS QUEUE: %v", key, err)
+		log(ctx, notification, zerolog.ErrorLevel, msg)
+		return nil, status.Errorf(codes.Internal, msg)
 	}
 
 	return &pb.NotificationResponse{Message: "Message Received"}, nil

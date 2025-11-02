@@ -14,7 +14,10 @@ var (
 	Client *redis.Client
 )
 
-const JobIdSet = "job:id"
+const (
+	JobIdSet  = "job:id"
+	JobsQueue = "jobs"
+)
 
 func Init() {
 	opts := &redis.Options{
