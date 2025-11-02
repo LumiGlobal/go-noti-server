@@ -11,11 +11,13 @@ import (
 	pb "go-noti-server/protos/notifications"
 
 	"github.com/newrelic/go-agent/v3/integrations/nrgrpc"
+	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 type server struct {
@@ -47,9 +49,9 @@ func RunGrpcServer() {
 	}
 }
 
-func logNotificationPackage(ctx context.Context, notification *pb.NotificationPackage, msg string) {
+func logNotificationPackage(ctx context.Context, notification *pb.NotificationPackage, level zerolog.Level, msg string) {
 	logger := nr.ContextLogger(ctx)
-	logger.Info().
+	logger.WithLevel(level).
 		Str("title", notification.Title).
 		Str("body", notification.Body).
 		Str("path", notification.Data["path"]).
@@ -59,8 +61,20 @@ func logNotificationPackage(ctx context.Context, notification *pb.NotificationPa
 }
 
 func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (*pb.NotificationResponse, error) {
+	txn := newrelic.FromContext(ctx)
 	notification := req.GetNotification()
-	logNotificationPackage(ctx, notification, "received notification")
+	logNotificationPackage(ctx, notification, zerolog.InfoLevel, "received notification")
+
+	seg := txn.StartSegment("NotificationMarshalling")
+	logNotificationPackage(ctx, notification, zerolog.InfoLevel, "marshalling notification")
+	_, err := proto.Marshal(notification)
+	if err != nil {
+		msg := fmt.Sprintf("error marshalling notification: %v", err)
+		logNotificationPackage(ctx, notification, zerolog.ErrorLevel, msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	seg.End()
+
 	return &pb.NotificationResponse{Message: "Message Received"}, nil
 }
 
