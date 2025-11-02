@@ -86,12 +86,12 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	logNotificationPackage(ctx, notification, zerolog.InfoLevel, "adding notification hash to set")
 	result, err := rd.Client.SAdd(ctx, rd.JobIdSet, hash).Result()
 	if err != nil {
-		msg := fmt.Sprintf("error adding to job:id set: %v", err)
+		msg := fmt.Sprintf("ERROR ADDING job:id TO SET: %v", err)
 		logNotificationPackage(ctx, notification, zerolog.ErrorLevel, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	if result == 0 {
-		msg := "notification payload not unique"
+		msg := "PAYLOAD NOT UNIQUE"
 		logNotificationPackage(ctx, notification, zerolog.WarnLevel, msg)
 		return nil, status.Errorf(codes.AlreadyExists, msg)
 	}
