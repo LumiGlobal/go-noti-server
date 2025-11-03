@@ -55,7 +55,7 @@ func Log(level zerolog.Level, msg string) {
 
 func newLogger() zerolog.Logger {
 	return zerolog.New(newWriter()).
-		Level(zerolog.InfoLevel).
+		Level(zerolog.DebugLevel).
 		With().
 		Timestamp().
 		Logger()

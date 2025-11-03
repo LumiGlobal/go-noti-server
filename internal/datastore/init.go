@@ -1,4 +1,4 @@
-package rd
+package datastore
 
 import (
 	"context"

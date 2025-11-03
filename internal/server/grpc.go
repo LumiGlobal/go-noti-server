@@ -3,12 +3,13 @@ package server
 import (
 	"context"
 	"fmt"
-	"go-noti-server/internal/rd"
+	"go-noti-server/internal/datastore"
 	"go-noti-server/internal/telemetry"
 	pbh "go-noti-server/protos/health"
 	pb "go-noti-server/protos/notifications"
 	"net"
 	"os"
+	"time"
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/newrelic/go-agent/v3/integrations/nrgrpc"
@@ -50,6 +51,77 @@ func RunGrpcServer() {
 	}
 }
 
+func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (*pb.NotificationResponse, error) {
+	start := time.Now()
+	txn := newrelic.FromContext(ctx)
+	notification := req.GetNotification()
+	log(ctx, notification, zerolog.InfoLevel, "Notification request received")
+
+	seg := txn.StartSegment("MarshallingNotification")
+	marshaller := proto.MarshalOptions{Deterministic: true}
+	data, err := marshaller.Marshal(notification)
+	if err != nil {
+		msg := fmt.Sprintf("error marshalling notification: %v", err)
+		log(ctx, notification, zerolog.ErrorLevel, msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	log(ctx, notification, zerolog.DebugLevel, "notification marshalled")
+	seg.End()
+
+	seg = txn.StartSegment("HashingNotification")
+	hash := xxhash.Sum64(data)
+	log(ctx, notification, zerolog.DebugLevel, "notification hashed")
+	seg.End()
+
+	result, err := datastore.Client.SAdd(ctx, datastore.JobIdSet, hash).Result()
+	if err != nil {
+		msg := fmt.Sprintf("ERROR ADDING %v TO SET: %v", hash, err)
+		log(ctx, notification, zerolog.ErrorLevel, msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	if result == 0 {
+		msg := "Notification payload not unique!"
+		log(ctx, notification, zerolog.WarnLevel, msg)
+		return nil, status.Errorf(codes.AlreadyExists, msg)
+	}
+	log(ctx, notification, zerolog.DebugLevel, "notification hash added to set")
+
+	key := txn.GetTraceMetadata().TraceID
+	_, err = datastore.Client.Set(ctx, key, data, 0).Result()
+	if err != nil {
+		msg := fmt.Sprintf("ERROR SETTING KEY %v TO PAYLOAD: %v", key, err)
+		log(ctx, notification, zerolog.ErrorLevel, msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	log(ctx, notification, zerolog.DebugLevel, fmt.Sprintf("key %v set to payload", key))
+
+	_, err = datastore.Client.RPush(ctx, datastore.JobsQueue, key).Result()
+	if err != nil {
+		msg := fmt.Sprintf("ERROR ADDING %v TO JOBS QUEUE: %v", key, err)
+		log(ctx, notification, zerolog.ErrorLevel, msg)
+		return nil, status.Errorf(codes.Internal, msg)
+	}
+	log(ctx, notification, zerolog.DebugLevel, fmt.Sprintf("key %v added to jobs queue", key))
+
+	defer log(ctx, notification, zerolog.InfoLevel, fmt.Sprintf("Notification response returned. SendMessage call duration: %v", time.Since(start)))
+	return &pb.NotificationResponse{Message: "Message Received"}, nil
+}
+
+func (s *healthCheckServer) Check(ctx context.Context, req *pbh.HealthCheckRequest) (*pbh.HealthCheckResponse, error) {
+	return &pbh.HealthCheckResponse{Message: "Alive"}, nil
+}
+
+func AuthInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	telemetry.LogWithContext(zerolog.DebugLevel, "auth intercept", ctx)
+
+	token := extractFromContext(ctx)
+	if !isTokenValid(token) {
+		telemetry.LogWithContext(zerolog.WarnLevel, "invalid auth token", ctx)
+		return nil, status.Errorf(codes.Unauthenticated, "token invalid")
+	}
+	return handler(ctx, req)
+}
+
 func log(ctx context.Context, notification *pb.NotificationPackage, level zerolog.Level, msg string) {
 	logger := telemetry.NewLogger(ctx)
 	logger.WithLevel(level).
@@ -59,75 +131,6 @@ func log(ctx context.Context, notification *pb.NotificationPackage, level zerolo
 		Str("contentId", notification.Data["contentId"]).
 		Str("contentType", notification.Data["contentType"]).
 		Msg(telemetry.MsgWithTraceID(ctx, msg))
-}
-
-func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (*pb.NotificationResponse, error) {
-	txn := newrelic.FromContext(ctx)
-	notification := req.GetNotification()
-	log(ctx, notification, zerolog.InfoLevel, "received notification")
-
-	seg := txn.StartSegment("NotificationMarshalling")
-	log(ctx, notification, zerolog.InfoLevel, "marshalling notification")
-	marshaller := proto.MarshalOptions{Deterministic: true}
-	data, err := marshaller.Marshal(notification)
-	if err != nil {
-		msg := fmt.Sprintf("error marshalling notification: %v", err)
-		log(ctx, notification, zerolog.ErrorLevel, msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
-	seg.End()
-
-	seg = txn.StartSegment("HashingNotification")
-	log(ctx, notification, zerolog.InfoLevel, "hashing notification")
-	hash := xxhash.Sum64(data)
-	seg.End()
-
-	log(ctx, notification, zerolog.InfoLevel, "adding notification hash to set")
-	result, err := rd.Client.SAdd(ctx, rd.JobIdSet, hash).Result()
-	if err != nil {
-		msg := fmt.Sprintf("ERROR ADDING job:id TO SET: %v", err)
-		log(ctx, notification, zerolog.ErrorLevel, msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
-	if result == 0 {
-		msg := "PAYLOAD NOT UNIQUE"
-		log(ctx, notification, zerolog.WarnLevel, msg)
-		return nil, status.Errorf(codes.AlreadyExists, msg)
-	}
-
-	key := txn.GetTraceMetadata().TraceID
-	log(ctx, notification, zerolog.InfoLevel, fmt.Sprintf("setting key %v to payload", key))
-	_, err = rd.Client.Set(ctx, key, data, 0).Result()
-	if err != nil {
-		msg := fmt.Sprintf("ERROR SETTING key %v TO PAYLOAD: %v", key, err)
-		log(ctx, notification, zerolog.ErrorLevel, msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
-
-	log(ctx, notification, zerolog.InfoLevel, fmt.Sprintf("adding %v to jobs queue", key))
-	_, err = rd.Client.RPush(ctx, rd.JobsQueue, key).Result()
-	if err != nil {
-		msg := fmt.Sprintf("ERROR ADDING %v TO JOBS QUEUE: %v", key, err)
-		log(ctx, notification, zerolog.ErrorLevel, msg)
-		return nil, status.Errorf(codes.Internal, msg)
-	}
-
-	return &pb.NotificationResponse{Message: "Message Received"}, nil
-}
-
-func (s *healthCheckServer) Check(ctx context.Context, req *pbh.HealthCheckRequest) (*pbh.HealthCheckResponse, error) {
-	return &pbh.HealthCheckResponse{Message: "Alive"}, nil
-}
-
-func AuthInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	telemetry.LogWithContext(zerolog.InfoLevel, "auth intercept", ctx)
-
-	token := extractFromContext(ctx)
-	if !isTokenValid(token) {
-		telemetry.LogWithContext(zerolog.WarnLevel, "invalid auth token", ctx)
-		return nil, status.Errorf(codes.Unauthenticated, "token invalid")
-	}
-	return handler(ctx, req)
 }
 
 func extractFromContext(ctx context.Context) string {
