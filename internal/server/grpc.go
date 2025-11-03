@@ -3,8 +3,8 @@ package server
 import (
 	"context"
 	"fmt"
-	"go-noti-server/internal/nr"
 	"go-noti-server/internal/rd"
+	"go-noti-server/internal/telemetry"
 	pbh "go-noti-server/protos/health"
 	pb "go-noti-server/protos/notifications"
 	"net"
@@ -33,32 +33,32 @@ func RunGrpcServer() {
 	var (
 		port     = os.Getenv("PORT")
 		lis, err = net.Listen("tcp", port)
-		s        = grpc.NewServer(grpc.ChainUnaryInterceptor(nrgrpc.UnaryServerInterceptor(nr.App), AuthInterceptor))
+		s        = grpc.NewServer(grpc.ChainUnaryInterceptor(nrgrpc.UnaryServerInterceptor(telemetry.App), AuthInterceptor))
 	)
 
 	pb.RegisterNotificationServiceServer(s, &server{})
 	pbh.RegisterHealthServiceServer(s, &healthCheckServer{})
 
-	nr.Log(zerolog.InfoLevel, fmt.Sprintf("server listening at %v", lis.Addr()))
+	telemetry.Log(zerolog.InfoLevel, fmt.Sprintf("server listening at %v", lis.Addr()))
 
 	if err != nil {
-		nr.Log(zerolog.FatalLevel, fmt.Sprintf("failed to listen: %v", err))
+		telemetry.Log(zerolog.FatalLevel, fmt.Sprintf("failed to listen: %v", err))
 	}
 
 	if err := s.Serve(lis); err != nil {
-		nr.Log(zerolog.FatalLevel, fmt.Sprintf("failed to serve: %v", err))
+		telemetry.Log(zerolog.FatalLevel, fmt.Sprintf("failed to serve: %v", err))
 	}
 }
 
 func log(ctx context.Context, notification *pb.NotificationPackage, level zerolog.Level, msg string) {
-	logger := nr.ContextLogger(ctx)
+	logger := telemetry.NewLogger(ctx)
 	logger.WithLevel(level).
 		Str("title", notification.Title).
 		Str("body", notification.Body).
 		Str("path", notification.Data["path"]).
 		Str("contentId", notification.Data["contentId"]).
 		Str("contentType", notification.Data["contentType"]).
-		Msg(nr.MsgFormatter(ctx, msg))
+		Msg(telemetry.MsgWithTraceID(ctx, msg))
 }
 
 func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (*pb.NotificationResponse, error) {
@@ -120,11 +120,11 @@ func (s *healthCheckServer) Check(ctx context.Context, req *pbh.HealthCheckReque
 }
 
 func AuthInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	nr.LogWithContext(zerolog.InfoLevel, "auth intercept", ctx)
+	telemetry.LogWithContext(zerolog.InfoLevel, "auth intercept", ctx)
 
 	token := extractFromContext(ctx)
 	if !isTokenValid(token) {
-		nr.LogWithContext(zerolog.WarnLevel, "invalid auth token", ctx)
+		telemetry.LogWithContext(zerolog.WarnLevel, "invalid auth token", ctx)
 		return nil, status.Errorf(codes.Unauthenticated, "token invalid")
 	}
 	return handler(ctx, req)

@@ -1,4 +1,4 @@
-package nr
+package telemetry
 
 import (
 	"context"
@@ -12,7 +12,10 @@ import (
 	"github.com/rs/zerolog"
 )
 
-var App *newrelic.Application
+var (
+	App    *newrelic.Application
+	logger zerolog.Logger
+)
 
 func Init() {
 	var err error
@@ -25,49 +28,43 @@ func Init() {
 	if err != nil {
 		log.Fatalln("Fail to crate New Relic Application")
 	}
+	logger = newLogger()
 }
 
-func MsgFormatter(ctx context.Context, msg string) string {
+func NewLogger(ctx context.Context) zerolog.Logger {
+	w := newWriter()
+	txnWriter := w.WithContext(ctx)
+	return newLogger().Output(txnWriter)
+}
+
+func MsgWithTraceID(ctx context.Context, msg string) string {
 	traceID := newrelic.FromContext(ctx).GetTraceMetadata().TraceID
 	return fmt.Sprintf("[%v] %v", traceID, msg)
 }
 
 func LogWithContext(level zerolog.Level, msg string, ctx context.Context) {
-	txnlogger := ContextLogger(ctx)
+	txnlogger := NewLogger(ctx)
 	txn := newrelic.FromContext(ctx)
 	metadata := txn.GetTraceMetadata()
 	txnlogger.WithLevel(level).Msg(fmt.Sprintf("[%v] %v", metadata.TraceID, msg))
 }
 
 func Log(level zerolog.Level, msg string) {
-	logger := getLogger()
 	logger.WithLevel(level).Msg(msg)
 }
 
-func getLogger() zerolog.Logger {
-	return zerolog.New(writer()).
+func newLogger() zerolog.Logger {
+	return zerolog.New(newWriter()).
 		Level(zerolog.InfoLevel).
 		With().
 		Timestamp().
 		Logger()
 }
 
-func writer() zerologWriter.ZerologWriter {
+func newWriter() zerologWriter.ZerologWriter {
 	consoleWriter := zerolog.ConsoleWriter{
 		Out:        os.Stdout,
 		TimeFormat: time.RFC3339,
 	}
 	return zerologWriter.New(consoleWriter, App)
-}
-
-func txnLogger(txn *newrelic.Transaction) zerolog.Logger {
-	w := writer()
-	txnWriter := w.WithTransaction(txn)
-	return getLogger().Output(txnWriter)
-}
-
-func ContextLogger(ctx context.Context) zerolog.Logger {
-	w := writer()
-	txnWriter := w.WithContext(ctx)
-	return getLogger().Output(txnWriter)
 }
