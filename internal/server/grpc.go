@@ -53,9 +53,16 @@ func RunGrpcServer() {
 
 func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (*pb.NotificationResponse, error) {
 	start := time.Now()
+
 	txn := newrelic.FromContext(ctx)
+	defer txn.End()
+
 	notification := req.GetNotification()
 	log(ctx, notification, zerolog.InfoLevel, "Notification request received")
+	defer func() {
+		msg := fmt.Sprintf("Notification response returned. SendMessage call duration: %v", time.Since(start))
+		log(ctx, notification, zerolog.InfoLevel, msg)
+	}()
 
 	seg := txn.StartSegment("MarshallingNotification")
 	marshaller := proto.MarshalOptions{Deterministic: true}
@@ -103,7 +110,6 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
-	defer log(ctx, notification, zerolog.InfoLevel, fmt.Sprintf("Notification response returned. SendMessage call duration: %v", time.Since(start)))
 	return &pb.NotificationResponse{Message: "Message Received"}, nil
 }
 
