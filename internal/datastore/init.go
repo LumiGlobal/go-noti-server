@@ -15,8 +15,9 @@ var (
 )
 
 const (
-	JobIdSet  = "job:id"
-	JobsQueue = "jobs"
+	JobIdSet        = "job:id"
+	JobsQueue       = "jobs"
+	ProcessingQueue = "processing"
 )
 
 func Init() {
@@ -35,4 +36,12 @@ func Init() {
 	if err != nil {
 		log.Fatalf("Failed to connect to redis: %v\n", err)
 	}
+}
+
+func MoveJobToProcessing(ctx context.Context) (string, error) {
+	jobId, err := Client.BLMove(ctx, JobsQueue, ProcessingQueue, "LEFT", "RIGHT", 0).Result()
+	if err != nil {
+		return "", err
+	}
+	return jobId, nil
 }

@@ -95,13 +95,13 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	}
 	log(ctx, notification, zerolog.DebugLevel, fmt.Sprintf("key %v set to payload", key))
 
+	log(ctx, notification, zerolog.DebugLevel, fmt.Sprintf("adding key %v to jobs queue", key))
 	_, err = datastore.Client.RPush(ctx, datastore.JobsQueue, key).Result()
 	if err != nil {
 		msg := fmt.Sprintf("ERROR ADDING %v TO JOBS QUEUE: %v", key, err)
 		log(ctx, notification, zerolog.ErrorLevel, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
-	log(ctx, notification, zerolog.DebugLevel, fmt.Sprintf("key %v added to jobs queue", key))
 
 	defer log(ctx, notification, zerolog.InfoLevel, fmt.Sprintf("Notification response returned. SendMessage call duration: %v", time.Since(start)))
 	return &pb.NotificationResponse{Message: "Message Received"}, nil
