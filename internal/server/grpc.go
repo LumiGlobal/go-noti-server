@@ -73,13 +73,13 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	log(ctx, notification, zerolog.DebugLevel, "notification hashed")
 	seg.End()
 
-	result, err := datastore.Client.SAdd(ctx, datastore.JobIdSet, hash).Result()
+	unique, err := datastore.AddJobPayloadHashToSet(ctx, hash)
 	if err != nil {
 		msg := fmt.Sprintf("ERROR ADDING %v TO SET: %v", hash, err)
 		log(ctx, notification, zerolog.ErrorLevel, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
-	if result == 0 {
+	if !unique {
 		msg := "Notification payload not unique!"
 		log(ctx, notification, zerolog.WarnLevel, msg)
 		return nil, status.Errorf(codes.AlreadyExists, msg)
@@ -87,7 +87,7 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	log(ctx, notification, zerolog.DebugLevel, "notification hash added to set")
 
 	key := txn.GetTraceMetadata().TraceID
-	_, err = datastore.Client.Set(ctx, key, data, 0).Result()
+	err = datastore.SetJobIdToPayload(ctx, key, data)
 	if err != nil {
 		msg := fmt.Sprintf("ERROR SETTING KEY %v TO PAYLOAD: %v", key, err)
 		log(ctx, notification, zerolog.ErrorLevel, msg)
@@ -96,7 +96,7 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	log(ctx, notification, zerolog.DebugLevel, fmt.Sprintf("key %v set to payload", key))
 
 	log(ctx, notification, zerolog.DebugLevel, fmt.Sprintf("adding key %v to jobs queue", key))
-	_, err = datastore.Client.RPush(ctx, datastore.JobsQueue, key).Result()
+	err = datastore.PushJobIdToJobsQueue(ctx, key)
 	if err != nil {
 		msg := fmt.Sprintf("ERROR ADDING %v TO JOBS QUEUE: %v", key, err)
 		log(ctx, notification, zerolog.ErrorLevel, msg)

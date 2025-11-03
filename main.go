@@ -31,8 +31,9 @@ func main() {
 			if err != nil {
 				telemetry.Log(zerolog.ErrorLevel, fmt.Sprintf("ERROR MOVING JOB ID FROM JOBS TO PROCESSING: %v", err))
 			}
+			telemetry.Log(zerolog.DebugLevel, fmt.Sprintf("[%v] BLMOVE from jobs to processing", jobId))
 			jobsChan <- jobId
-			telemetry.Log(zerolog.InfoLevel, fmt.Sprintf("Pushed JobId: %v", jobId))
+			telemetry.Log(zerolog.DebugLevel, fmt.Sprintf("[%v] pushed to jobsChan", jobId))
 		}
 	}(slotsChan, jobsChan)
 	server.RunGrpcServer()

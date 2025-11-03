@@ -10,14 +10,12 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-var (
-	Client *redis.Client
-)
+var client *redis.Client
 
 const (
-	JobIdSet        = "job:id"
-	JobsQueue       = "jobs"
-	ProcessingQueue = "processing"
+	jobPayloadHashSet = "job:payload:hash"
+	jobsQueue         = "jobs"
+	processingQueue   = "processing"
 )
 
 func Init() {
@@ -29,19 +27,46 @@ func Init() {
 		WriteTimeout: 5 * time.Second,
 		DialTimeout:  5 * time.Second,
 	}
-	Client = redis.NewClient(opts)
-	Client.AddHook(nrredis.NewHook(opts))
+	client = redis.NewClient(opts)
+	client.AddHook(nrredis.NewHook(opts))
 
-	_, err := Client.Ping(context.Background()).Result()
+	_, err := client.Ping(context.Background()).Result()
 	if err != nil {
 		log.Fatalf("Failed to connect to redis: %v\n", err)
 	}
 }
 
 func MoveJobToProcessing(ctx context.Context) (string, error) {
-	jobId, err := Client.BLMove(ctx, JobsQueue, ProcessingQueue, "LEFT", "RIGHT", 0).Result()
+	jobId, err := client.BLMove(ctx, jobsQueue, processingQueue, "LEFT", "RIGHT", 0).Result()
 	if err != nil {
 		return "", err
 	}
 	return jobId, nil
+}
+
+func AddJobPayloadHashToSet(ctx context.Context, payloadHash uint64) (bool, error) {
+	result, err := client.SAdd(ctx, jobPayloadHashSet, payloadHash).Result()
+	if err != nil {
+		return false, err
+	}
+	if result == 0 {
+		return false, nil
+	}
+	return true, nil
+}
+
+func SetJobIdToPayload(ctx context.Context, jobId string, payload []byte) error {
+	_, err := client.Set(ctx, jobId, payload, 0).Result()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func PushJobIdToJobsQueue(ctx context.Context, jobId string) error {
+	_, err := client.RPush(ctx, jobsQueue, jobId).Result()
+	if err != nil {
+		return err
+	}
+	return nil
 }
