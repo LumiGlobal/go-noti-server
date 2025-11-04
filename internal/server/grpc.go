@@ -55,13 +55,15 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	start := time.Now()
 
 	txn := newrelic.FromContext(ctx)
+	logger := telemetry.NewLogger(ctx)
+	jobId := txn.GetTraceMetadata().TraceID
 	defer txn.End()
 
 	notification := req.GetNotification()
-	log(ctx, notification, zerolog.InfoLevel, "Notification request received")
+	log(logger, zerolog.InfoLevel, notification, jobId, "Notification request received")
 	defer func() {
 		msg := fmt.Sprintf("Notification response returned. SendMessage call duration: %v", time.Since(start))
-		log(ctx, notification, zerolog.InfoLevel, msg)
+		log(logger, zerolog.InfoLevel, notification, jobId, msg)
 	}()
 
 	seg := txn.StartSegment("MarshallingNotification")
@@ -69,44 +71,43 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	data, err := marshaller.Marshal(notification)
 	if err != nil {
 		msg := fmt.Sprintf("error marshalling notification: %v", err)
-		log(ctx, notification, zerolog.ErrorLevel, msg)
+		log(logger, zerolog.ErrorLevel, notification, jobId, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
-	log(ctx, notification, zerolog.DebugLevel, "notification marshalled")
+	log(logger, zerolog.DebugLevel, notification, jobId, "notification marshalled")
 	seg.End()
 
 	seg = txn.StartSegment("HashingNotification")
 	hash := xxhash.Sum64(data)
-	log(ctx, notification, zerolog.DebugLevel, "notification hashed")
+	log(logger, zerolog.DebugLevel, notification, jobId, "notification hashed")
 	seg.End()
 
 	unique, err := datastore.AddJobPayloadHashToSet(ctx, hash)
 	if err != nil {
 		msg := fmt.Sprintf("ERROR ADDING %v TO SET: %v", hash, err)
-		log(ctx, notification, zerolog.ErrorLevel, msg)
+		log(logger, zerolog.ErrorLevel, notification, jobId, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	if !unique {
 		msg := "Notification payload not unique!"
-		log(ctx, notification, zerolog.WarnLevel, msg)
+		log(logger, zerolog.WarnLevel, notification, jobId, msg)
 		return nil, status.Errorf(codes.AlreadyExists, msg)
 	}
-	log(ctx, notification, zerolog.DebugLevel, "notification hash added to set")
+	log(logger, zerolog.DebugLevel, notification, jobId, "notification hash added to set")
 
-	jobId := txn.GetTraceMetadata().TraceID
 	err = datastore.SetJobIdToPayload(ctx, jobId, data)
 	if err != nil {
 		msg := fmt.Sprintf("ERROR SETTING KEY %v TO PAYLOAD: %v", jobId, err)
-		log(ctx, notification, zerolog.ErrorLevel, msg)
+		log(logger, zerolog.ErrorLevel, notification, jobId, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
-	log(ctx, notification, zerolog.DebugLevel, fmt.Sprintf("jobId %v set to payload", jobId))
+	log(logger, zerolog.DebugLevel, notification, jobId, fmt.Sprintf("jobId %v set to payload", jobId))
 
-	log(ctx, notification, zerolog.DebugLevel, fmt.Sprintf("adding jobId %v to jobs queue", jobId))
+	log(logger, zerolog.DebugLevel, notification, jobId, fmt.Sprintf("adding jobId %v to jobs queue", jobId))
 	err = datastore.PushJobIdToJobsQueue(ctx, jobId)
 	if err != nil {
 		msg := fmt.Sprintf("ERROR ADDING %v TO JOBS QUEUE: %v", jobId, err)
-		log(ctx, notification, zerolog.ErrorLevel, msg)
+		log(logger, zerolog.ErrorLevel, notification, jobId, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
@@ -128,15 +129,15 @@ func AuthInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServe
 	return handler(ctx, req)
 }
 
-func log(ctx context.Context, notification *pb.NotificationPackage, level zerolog.Level, msg string) {
-	logger := telemetry.NewLogger(ctx)
+func log(logger zerolog.Logger, level zerolog.Level, notification *pb.NotificationPackage, jobId string, msg string) {
 	logger.WithLevel(level).
 		Str("title", notification.Title).
 		Str("body", notification.Body).
 		Str("path", notification.Data["path"]).
 		Str("contentId", notification.Data["contentId"]).
 		Str("contentType", notification.Data["contentType"]).
-		Msg("[SendMessage] " + telemetry.MsgWithTraceID(ctx, msg))
+		Str("jobId", jobId).
+		Msg(fmt.Sprintf("[SendMessage] [%v] %v", jobId, msg))
 }
 
 func extractFromContext(ctx context.Context) string {
