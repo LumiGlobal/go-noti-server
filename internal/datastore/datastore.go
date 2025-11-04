@@ -70,3 +70,11 @@ func PushJobIdToJobsQueue(ctx context.Context, jobId string) error {
 	}
 	return nil
 }
+
+func GetPayloadFromJobId(ctx context.Context, jobId string) ([]byte, error) {
+	data, err := client.Get(ctx, jobId).Bytes()
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}

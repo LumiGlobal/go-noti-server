@@ -93,19 +93,19 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	}
 	log(ctx, notification, zerolog.DebugLevel, "notification hash added to set")
 
-	key := txn.GetTraceMetadata().TraceID
-	err = datastore.SetJobIdToPayload(ctx, key, data)
+	jobId := txn.GetTraceMetadata().TraceID
+	err = datastore.SetJobIdToPayload(ctx, jobId, data)
 	if err != nil {
-		msg := fmt.Sprintf("ERROR SETTING KEY %v TO PAYLOAD: %v", key, err)
+		msg := fmt.Sprintf("ERROR SETTING KEY %v TO PAYLOAD: %v", jobId, err)
 		log(ctx, notification, zerolog.ErrorLevel, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
-	log(ctx, notification, zerolog.DebugLevel, fmt.Sprintf("key %v set to payload", key))
+	log(ctx, notification, zerolog.DebugLevel, fmt.Sprintf("jobId %v set to payload", jobId))
 
-	log(ctx, notification, zerolog.DebugLevel, fmt.Sprintf("adding key %v to jobs queue", key))
-	err = datastore.PushJobIdToJobsQueue(ctx, key)
+	log(ctx, notification, zerolog.DebugLevel, fmt.Sprintf("adding jobId %v to jobs queue", jobId))
+	err = datastore.PushJobIdToJobsQueue(ctx, jobId)
 	if err != nil {
-		msg := fmt.Sprintf("ERROR ADDING %v TO JOBS QUEUE: %v", key, err)
+		msg := fmt.Sprintf("ERROR ADDING %v TO JOBS QUEUE: %v", jobId, err)
 		log(ctx, notification, zerolog.ErrorLevel, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
@@ -136,7 +136,7 @@ func log(ctx context.Context, notification *pb.NotificationPackage, level zerolo
 		Str("path", notification.Data["path"]).
 		Str("contentId", notification.Data["contentId"]).
 		Str("contentType", notification.Data["contentType"]).
-		Msg(telemetry.MsgWithTraceID(ctx, msg))
+		Msg("[SendMessage] " + telemetry.MsgWithTraceID(ctx, msg))
 }
 
 func extractFromContext(ctx context.Context) string {
