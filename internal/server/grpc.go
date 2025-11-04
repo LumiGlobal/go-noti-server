@@ -8,6 +8,7 @@ import (
 	pbh "go-noti-server/protos/health"
 	pb "go-noti-server/protos/notifications"
 	"net"
+	"net/http"
 	"os"
 	"time"
 
@@ -55,9 +56,13 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	start := time.Now()
 
 	txn := newrelic.FromContext(ctx)
-	logger := telemetry.NewLogger(ctx)
-	jobId := txn.GetTraceMetadata().TraceID
 	defer txn.End()
+
+	jobId := txn.GetTraceMetadata().TraceID
+	traceHeaders := http.Header{}
+	txn.InsertDistributedTraceHeaders(traceHeaders)
+	telemetry.AddTraceHeaders(jobId, traceHeaders)
+	logger := telemetry.NewLogger(ctx)
 
 	notification := req.GetNotification()
 	log(logger, zerolog.InfoLevel, notification, jobId, "Notification request received")
