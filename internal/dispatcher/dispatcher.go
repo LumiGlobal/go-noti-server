@@ -23,6 +23,7 @@ func Run(slotsChan chan struct{}, jobsChan chan<- string) {
 		t = time.Now()
 		jobId, err := datastore.MoveJobToProcessing(ctx)
 		if err != nil {
+			txn.NoticeError(err)
 			logger.Error().Msg(fmt.Sprintf("[Dispatcher] ERROR MOVING JOB ID FROM JOBS TO PROCESSING: %v", err))
 			slotsChan <- struct{}{}
 			continue

@@ -30,6 +30,7 @@ func Worker(id int, jobsChan <-chan string, slotsChan chan<- struct{}) {
 
 		data, err := datastore.GetPayloadFromJobId(ctx, jobId)
 		if err != nil {
+			txn.NoticeError(err)
 			log(logger, zerolog.ErrorLevel, id, jobId, fmt.Sprintf("ERROR RETRIEVING PAYLOAD: %v", err))
 			slotsChan <- struct{}{}
 			continue
@@ -40,6 +41,7 @@ func Worker(id int, jobsChan <-chan string, slotsChan chan<- struct{}) {
 		var notification pb.NotificationPackage
 		err = proto.Unmarshal(data, &notification)
 		if err != nil {
+			txn.NoticeError(err)
 			log(logger, zerolog.ErrorLevel, id, jobId, fmt.Sprintf("ERROR UNMARSHALLING NOTIFICATION: %v", err))
 			slotsChan <- struct{}{}
 			continue

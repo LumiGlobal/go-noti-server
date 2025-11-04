@@ -75,6 +75,7 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	marshaller := proto.MarshalOptions{Deterministic: true}
 	data, err := marshaller.Marshal(notification)
 	if err != nil {
+		txn.NoticeError(err)
 		msg := fmt.Sprintf("error marshalling notification: %v", err)
 		log(logger, zerolog.ErrorLevel, notification, jobId, msg)
 		return nil, status.Errorf(codes.Internal, msg)
@@ -89,6 +90,7 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 
 	unique, err := datastore.AddJobPayloadHashToSet(ctx, hash)
 	if err != nil {
+		txn.NoticeError(err)
 		msg := fmt.Sprintf("ERROR ADDING %v TO SET: %v", hash, err)
 		log(logger, zerolog.ErrorLevel, notification, jobId, msg)
 		return nil, status.Errorf(codes.Internal, msg)
@@ -102,6 +104,7 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 
 	err = datastore.SetJobIdToPayload(ctx, jobId, data)
 	if err != nil {
+		txn.NoticeError(err)
 		msg := fmt.Sprintf("ERROR SETTING KEY %v TO PAYLOAD: %v", jobId, err)
 		log(logger, zerolog.ErrorLevel, notification, jobId, msg)
 		return nil, status.Errorf(codes.Internal, msg)
@@ -111,6 +114,7 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	log(logger, zerolog.DebugLevel, notification, jobId, fmt.Sprintf("adding jobId %v to jobs queue", jobId))
 	err = datastore.PushJobIdToJobsQueue(ctx, jobId)
 	if err != nil {
+		txn.NoticeError(err)
 		msg := fmt.Sprintf("ERROR ADDING %v TO JOBS QUEUE: %v", jobId, err)
 		log(logger, zerolog.ErrorLevel, notification, jobId, msg)
 		return nil, status.Errorf(codes.Internal, msg)
