@@ -7,6 +7,7 @@ import (
 	"go-noti-server/internal/datastore"
 	"go-noti-server/internal/telemetry"
 	pb "go-noti-server/protos/notifications"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -32,16 +33,15 @@ func init() {
 	ctx := context.Background()
 	app, err = firebase.NewApp(ctx, nil, opts)
 	if err != nil {
-		telemetry.Log(zerolog.FatalLevel, fmt.Sprintf("error creating new firebase app: %v", err))
+		log.Fatalf(fmt.Sprintf("error creating new firebase app: %v", err))
 	}
 	client, err = app.Messaging(ctx)
 	if err != nil {
-		telemetry.Log(zerolog.FatalLevel, fmt.Sprintf("error creating new firebase client: %v", err))
+		log.Fatalf(fmt.Sprintf("error creating new firebase client: %v", err))
 	}
 }
 
 func Worker(id int, jobsChan <-chan string, slotsChan chan<- struct{}) {
-	telemetry.Log(zerolog.InfoLevel, fmt.Sprintf("[Worker %v] spawned", id))
 	for jobId := range jobsChan {
 		processJob(id, jobId, slotsChan)
 	}
@@ -61,12 +61,12 @@ func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
 	ctx := newrelic.NewContext(context.Background(), txn)
 
 	logger := telemetry.NewLogger(ctx)
-	log(logger, zerolog.InfoLevel, workerId, jobId, "Starting job")
+	lg(logger, zerolog.InfoLevel, workerId, jobId, "Starting job")
 
 	data, err := datastore.GetPayloadFromJobId(ctx, jobId)
 	if err != nil {
 		txn.NoticeError(err)
-		log(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR RETRIEVING PAYLOAD: %v", err))
+		lg(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR RETRIEVING PAYLOAD: %v", err))
 		return
 	}
 
@@ -75,7 +75,7 @@ func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
 	err = proto.Unmarshal(data, &notification)
 	if err != nil {
 		txn.NoticeError(err)
-		log(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR UNMARSHALLING NOTIFICATION: %v", err))
+		lg(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR UNMARSHALLING NOTIFICATION: %v", err))
 		return
 	}
 	seg.End()
@@ -87,27 +87,27 @@ func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
 	//resp, err := client.SendEachForMulticastDryRun(ctx, fcmMsg)
 	//if err != nil {
 	//	txn.NoticeError(err)
-	//	log(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR SENDING MESSAGE TO FCM: %v", err))
+	//	lg(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR SENDING MESSAGE TO FCM: %v", err))
 	//	return
 	//}
 	//if resp == nil {
 	//	err := fmt.Errorf("BatchResponse is nil")
 	//	txn.NoticeError(err)
-	//	log(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR RESPONSE FROM FCM: %v", err))
+	//	lg(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR RESPONSE FROM FCM: %v", err))
 	//	return
 	//}
 	seg.End()
 	//msg := fmt.Sprintf("FCM message sent | FCM Time: %v, SuccessCount: %v, FailureCount: %v", time.Since(t), resp.SuccessCount, resp.FailureCount)
-	//log(logger, zerolog.InfoLevel, workerId, jobId, msg)
+	//lg(logger, zerolog.InfoLevel, workerId, jobId, msg)
 
 	err = cleanupJob(ctx, jobId)
 	if err != nil {
 		txn.NoticeError(err)
-		log(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR DURING CLEANUP JOB: %v", err))
+		lg(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR DURING CLEANUP JOB: %v", err))
 		return
 	}
 
-	log(logger, zerolog.InfoLevel, workerId, jobId, "Finished job")
+	lg(logger, zerolog.InfoLevel, workerId, jobId, "Finished job")
 }
 
 func cleanupJob(ctx context.Context, jobId string) error {
@@ -178,7 +178,7 @@ func freeSlot(slotsChan chan<- struct{}) {
 	slotsChan <- struct{}{}
 }
 
-func log(logger zerolog.Logger, level zerolog.Level, id int, jobId string, msg string) {
+func lg(logger zerolog.Logger, level zerolog.Level, id int, jobId string, msg string) {
 	logger.WithLevel(level).
 		Str("goroutine", fmt.Sprintf("worker %v", id)).
 		Str("jobId", jobId).
