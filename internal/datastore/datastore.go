@@ -30,7 +30,7 @@ func Init() {
 	client = redis.NewClient(opts)
 	client.AddHook(nrredis.NewHook(opts))
 
-	_, err := client.Ping(context.Background()).Result()
+	err := client.Ping(context.Background()).Err()
 	if err != nil {
 		log.Fatalf("Failed to connect to redis: %v\n", err)
 	}
@@ -56,7 +56,7 @@ func AddJobPayloadHashToSet(ctx context.Context, payloadHash uint64) (bool, erro
 }
 
 func SetJobIdToPayload(ctx context.Context, jobId string, payload []byte) error {
-	_, err := client.Set(ctx, jobId, payload, 0).Result()
+	err := client.Set(ctx, jobId, payload, 0).Err()
 	if err != nil {
 		return err
 	}
@@ -64,7 +64,7 @@ func SetJobIdToPayload(ctx context.Context, jobId string, payload []byte) error 
 }
 
 func PushJobIdToJobsQueue(ctx context.Context, jobId string) error {
-	_, err := client.RPush(ctx, jobsQueue, jobId).Result()
+	err := client.RPush(ctx, jobsQueue, jobId).Err()
 	if err != nil {
 		return err
 	}
@@ -77,4 +77,20 @@ func GetPayloadFromJobId(ctx context.Context, jobId string) ([]byte, error) {
 		return nil, err
 	}
 	return data, nil
+}
+
+func RemoveJobIdFromProcessing(ctx context.Context, jobId string) error {
+	err := client.LRem(ctx, processingQueue, 1, jobId).Err()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func RemovePayload(ctx context.Context, jobId string) error {
+	err := client.Del(ctx, jobId).Err()
+	if err != nil {
+		return err
+	}
+	return nil
 }
