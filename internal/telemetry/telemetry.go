@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"fmt"
+	"go-noti-server/config"
 	"log"
 	"net/http"
 	"os"
@@ -25,7 +26,8 @@ type safeMap struct {
 	m  map[string]http.Header
 }
 
-func Init() {
+func init() {
+	config.LoadEnv()
 	var err error
 
 	App, err = newrelic.NewApplication(

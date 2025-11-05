@@ -2,22 +2,13 @@ package main
 
 import (
 	"context"
-	"go-noti-server/config"
 	"go-noti-server/internal/datastore"
 	"go-noti-server/internal/dispatcher"
 	"go-noti-server/internal/fcm"
 	"go-noti-server/internal/server"
-	"go-noti-server/internal/telemetry"
 )
 
 const numWorkers = 15
-
-func init() {
-	config.LoadEnv()
-	datastore.Init()
-	telemetry.Init()
-	fcm.Init()
-}
 
 func main() {
 	datastore.RequeueUnfinishedJobs(context.Background())

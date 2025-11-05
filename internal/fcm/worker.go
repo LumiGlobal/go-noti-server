@@ -3,6 +3,7 @@ package fcm
 import (
 	"context"
 	"fmt"
+	"go-noti-server/config"
 	"go-noti-server/internal/datastore"
 	"go-noti-server/internal/telemetry"
 	pb "go-noti-server/protos/notifications"
@@ -23,7 +24,8 @@ var (
 	client *messaging.Client
 )
 
-func Init() {
+func init() {
+	config.LoadEnv()
 	var err error
 	auth := os.Getenv("AUTH_FILE")
 	opts := option.WithCredentialsFile(auth)

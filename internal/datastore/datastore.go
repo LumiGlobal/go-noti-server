@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go-noti-server/config"
 	"go-noti-server/internal/telemetry"
 	"log"
 	"os"
@@ -22,7 +23,8 @@ const (
 	processingQueue   = "processing"
 )
 
-func Init() {
+func init() {
+	config.LoadEnv()
 	opts := &redis.Options{
 		Addr:         os.Getenv("REDIS_ADDR"),
 		PoolSize:     2,
