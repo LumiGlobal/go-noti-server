@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"go-noti-server/config"
 	"go-noti-server/internal/datastore"
 	"go-noti-server/internal/dispatcher"
@@ -11,12 +12,15 @@ import (
 
 const numWorkers = 15
 
-func main() {
+func init() {
 	config.LoadEnv()
 	datastore.Init()
 	telemetry.Init()
 	fcm.Init()
+}
 
+func main() {
+	datastore.RequeueUnfinishedJobs(context.Background())
 	slotsChan := make(chan struct{}, numWorkers)
 	jobsChan := make(chan string, numWorkers)
 	for i := 0; i < numWorkers; i++ {
