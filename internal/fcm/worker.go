@@ -1,4 +1,4 @@
-package messaging
+package fcm
 
 import (
 	"context"
@@ -11,21 +11,30 @@ import (
 	"time"
 
 	firebase "firebase.google.com/go/v4"
+	"firebase.google.com/go/v4/messaging"
 	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/rs/zerolog"
 	"google.golang.org/api/option"
 	"google.golang.org/protobuf/proto"
 )
 
-var App *firebase.App
+var (
+	app    *firebase.App
+	client *messaging.Client
+)
 
 func Init() {
 	var err error
 	auth := os.Getenv("AUTH_FILE")
 	opts := option.WithCredentialsFile(auth)
-	App, err = firebase.NewApp(context.Background(), nil, opts)
+	ctx := context.Background()
+	app, err = firebase.NewApp(ctx, nil, opts)
 	if err != nil {
 		telemetry.Log(zerolog.FatalLevel, fmt.Sprintf("error creating new firebase app: %v", err))
+	}
+	client, err = app.Messaging(ctx)
+	if err != nil {
+		telemetry.Log(zerolog.FatalLevel, fmt.Sprintf("error creating new firebase client: %v", err))
 	}
 }
 
@@ -37,9 +46,7 @@ func Worker(id int, jobsChan <-chan string, slotsChan chan<- struct{}) {
 }
 
 func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
-	defer func() {
-		slotsChan <- struct{}{}
-	}()
+	defer freeSlot(slotsChan)
 
 	txn := telemetry.App.StartTransaction(fmt.Sprintf("Worker %v", workerId))
 	defer txn.End()
@@ -53,13 +60,6 @@ func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
 
 	logger := telemetry.NewLogger(ctx)
 	log(logger, zerolog.InfoLevel, workerId, jobId, "received jobId")
-
-	_, err := App.Messaging(ctx)
-	if err != nil {
-		txn.NoticeError(err)
-		log(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR CREATING FIREBASE MESSAGING CLIENT: %v", err))
-		return
-	}
 
 	data, err := datastore.GetPayloadFromJobId(ctx, jobId)
 	if err != nil {
@@ -81,6 +81,10 @@ func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
 	log(logger, zerolog.DebugLevel, workerId, jobId, "unmarshalled payload data")
 
 	time.Sleep(30 * time.Second)
+}
+
+func freeSlot(slotsChan chan<- struct{}) {
+	slotsChan <- struct{}{}
 }
 
 func log(logger zerolog.Logger, level zerolog.Level, id int, jobId string, msg string) {
