@@ -31,6 +31,12 @@ type healthCheckServer struct {
 	pbh.UnimplementedHealthServiceServer
 }
 
+type grpcLogger struct {
+	logger       zerolog.Logger
+	notification *pb.NotificationPackage
+	jobId        string
+}
+
 func RunGrpcServer() {
 	var (
 		port     = os.Getenv("PORT")
@@ -59,16 +65,17 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	defer txn.End()
 
 	jobId := txn.GetTraceMetadata().TraceID
+
 	traceHeaders := http.Header{}
 	txn.InsertDistributedTraceHeaders(traceHeaders)
 	telemetry.AddTraceHeaders(jobId, traceHeaders)
-	logger := telemetry.NewLogger(ctx)
 
 	notification := req.GetNotification()
-	log(logger, zerolog.InfoLevel, notification, jobId, "Notification request received")
+	logger := newGrpcLogger(ctx, notification, jobId)
+	logger.log(zerolog.InfoLevel, "Notification request received")
 	defer func() {
 		msg := fmt.Sprintf("Notification response returned. SendMessage call duration: %v", time.Since(start))
-		log(logger, zerolog.InfoLevel, notification, jobId, msg)
+		logger.log(zerolog.InfoLevel, msg)
 	}()
 
 	seg := txn.StartSegment("MarshallingNotification")
@@ -77,7 +84,7 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	if err != nil {
 		txn.NoticeError(err)
 		msg := fmt.Sprintf("error marshalling notification: %v", err)
-		log(logger, zerolog.ErrorLevel, notification, jobId, msg)
+		logger.log(zerolog.ErrorLevel, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	seg.End()
@@ -90,13 +97,13 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	if err != nil {
 		txn.NoticeError(err)
 		msg := fmt.Sprintf("ERROR ADDING %v TO SET: %v", hash, err)
-		log(logger, zerolog.ErrorLevel, notification, jobId, msg)
+		logger.log(zerolog.ErrorLevel, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	if !unique {
 		msg := "notification payload not unique"
 		txn.NoticeError(fmt.Errorf(msg))
-		log(logger, zerolog.WarnLevel, notification, jobId, msg)
+		logger.log(zerolog.WarnLevel, msg)
 		return nil, status.Errorf(codes.AlreadyExists, msg)
 	}
 
@@ -104,7 +111,7 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	if err != nil {
 		txn.NoticeError(err)
 		msg := fmt.Sprintf("ERROR SETTING KEY %v TO PAYLOAD: %v", jobId, err)
-		log(logger, zerolog.ErrorLevel, notification, jobId, msg)
+		logger.log(zerolog.ErrorLevel, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
@@ -112,7 +119,7 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	if err != nil {
 		txn.NoticeError(err)
 		msg := fmt.Sprintf("ERROR ADDING %v TO JOBS QUEUE: %v", jobId, err)
-		log(logger, zerolog.ErrorLevel, notification, jobId, msg)
+		logger.log(zerolog.ErrorLevel, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
@@ -133,15 +140,23 @@ func AuthInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServe
 	return handler(ctx, req)
 }
 
-func log(logger zerolog.Logger, level zerolog.Level, notification *pb.NotificationPackage, jobId string, msg string) {
-	logger.WithLevel(level).
-		Str("title", notification.Title).
-		Str("body", notification.Body).
-		Str("path", notification.Data["path"]).
-		Str("contentId", notification.Data["contentId"]).
-		Str("contentType", notification.Data["contentType"]).
-		Str("jobId", jobId).
-		Msg(fmt.Sprintf("[SendMessage] [%v] %v", jobId, msg))
+func newGrpcLogger(ctx context.Context, notification *pb.NotificationPackage, jobId string) grpcLogger {
+	return grpcLogger{
+		logger:       telemetry.NewLogger(ctx),
+		notification: notification,
+		jobId:        jobId,
+	}
+}
+
+func (gl *grpcLogger) log(level zerolog.Level, msg string) {
+	gl.logger.WithLevel(level).
+		Str("title", gl.notification.Title).
+		Str("body", gl.notification.Body).
+		Str("path", gl.notification.Data["path"]).
+		Str("contentId", gl.notification.Data["contentId"]).
+		Str("contentType", gl.notification.Data["contentType"]).
+		Str("jobId", gl.jobId).
+		Msg(fmt.Sprintf("[SendMessage] [%v] %v", gl.jobId, msg))
 }
 
 func extractFromContext(ctx context.Context) string {
