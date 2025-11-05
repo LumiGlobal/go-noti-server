@@ -87,24 +87,23 @@ func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
 	seg.End()
 
 	seg = txn.StartSegment("SendFCMMessage")
-	time.Sleep(60 * time.Second)
-	//fcmMsg := getFcmMessage(&notification)
-	//t := time.Now()
-	//resp, err := client.SendEachForMulticastDryRun(ctx, fcmMsg)
-	//if err != nil {
-	//	txn.NoticeError(err)
-	//	logger.log(zerolog.ErrorLevel, fmt.Sprintf("ERROR SENDING MESSAGE TO FCM: %v", err))
-	//	return
-	//}
-	//if resp == nil {
-	//	err := fmt.Errorf("BatchResponse is nil")
-	//	txn.NoticeError(err)
-	//	logger.log(zerolog.ErrorLevel, fmt.Sprintf("ERROR RESPONSE FROM FCM: %v", err))
-	//	return
-	//}
+	fcmMsg := getFcmMessage(&notification)
+	t := time.Now()
+	resp, err := client.SendEachForMulticast(ctx, fcmMsg)
+	if err != nil {
+		txn.NoticeError(err)
+		logger.log(zerolog.ErrorLevel, fmt.Sprintf("ERROR SENDING MESSAGE TO FCM: %v", err))
+		return
+	}
+	if resp == nil {
+		err := fmt.Errorf("BatchResponse is nil")
+		txn.NoticeError(err)
+		logger.log(zerolog.ErrorLevel, fmt.Sprintf("ERROR RESPONSE FROM FCM: %v", err))
+		return
+	}
 	seg.End()
-	//msg := fmt.Sprintf("FCM message sent | FCM Time: %v, SuccessCount: %v, FailureCount: %v", time.Since(t), resp.SuccessCount, resp.FailureCount)
-	//logger.log(zerolog.InfoLevel, msg)
+	msg := fmt.Sprintf("FCM message sent | FCM Time: %v, SuccessCount: %v, FailureCount: %v", time.Since(t), resp.SuccessCount, resp.FailureCount)
+	logger.log(zerolog.InfoLevel, msg)
 
 	err = cleanupJob(ctx, jobId)
 	if err != nil {
