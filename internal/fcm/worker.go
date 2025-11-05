@@ -25,6 +25,12 @@ var (
 	client *messaging.Client
 )
 
+type fcmLogger struct {
+	logger   zerolog.Logger
+	workerId int
+	jobId    string
+}
+
 func init() {
 	config.LoadEnv()
 	var err error
@@ -60,13 +66,13 @@ func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
 	txn.AcceptDistributedTraceHeaders(newrelic.TransportOther, traceHeaders)
 	ctx := newrelic.NewContext(context.Background(), txn)
 
-	logger := telemetry.NewLogger(ctx)
-	lg(logger, zerolog.InfoLevel, workerId, jobId, "Starting job")
+	logger := newFcmLogger(ctx, workerId, jobId)
+	logger.log(zerolog.InfoLevel, "starting job")
 
 	data, err := datastore.GetPayloadFromJobId(ctx, jobId)
 	if err != nil {
 		txn.NoticeError(err)
-		lg(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR RETRIEVING PAYLOAD: %v", err))
+		logger.log(zerolog.ErrorLevel, fmt.Sprintf("ERROR RETRIEVING PAYLOAD: %v", err))
 		return
 	}
 
@@ -75,39 +81,39 @@ func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
 	err = proto.Unmarshal(data, &notification)
 	if err != nil {
 		txn.NoticeError(err)
-		lg(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR UNMARSHALLING NOTIFICATION: %v", err))
+		logger.log(zerolog.ErrorLevel, fmt.Sprintf("ERROR UNMARSHALLING NOTIFICATION: %v", err))
 		return
 	}
 	seg.End()
 
-	//fcmMsg := getFcmMessage(&notification)
-	seg = txn.StartSegment("SendingFCMMessage")
+	seg = txn.StartSegment("SendFCMMessage")
 	time.Sleep(60 * time.Second)
+	//fcmMsg := getFcmMessage(&notification)
 	//t := time.Now()
 	//resp, err := client.SendEachForMulticastDryRun(ctx, fcmMsg)
 	//if err != nil {
 	//	txn.NoticeError(err)
-	//	lg(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR SENDING MESSAGE TO FCM: %v", err))
+	//	logger.log(zerolog.ErrorLevel, fmt.Sprintf("ERROR SENDING MESSAGE TO FCM: %v", err))
 	//	return
 	//}
 	//if resp == nil {
 	//	err := fmt.Errorf("BatchResponse is nil")
 	//	txn.NoticeError(err)
-	//	lg(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR RESPONSE FROM FCM: %v", err))
+	//	logger.log(zerolog.ErrorLevel, fmt.Sprintf("ERROR RESPONSE FROM FCM: %v", err))
 	//	return
 	//}
 	seg.End()
 	//msg := fmt.Sprintf("FCM message sent | FCM Time: %v, SuccessCount: %v, FailureCount: %v", time.Since(t), resp.SuccessCount, resp.FailureCount)
-	//lg(logger, zerolog.InfoLevel, workerId, jobId, msg)
+	//logger.log(zerolog.InfoLevel, msg)
 
 	err = cleanupJob(ctx, jobId)
 	if err != nil {
 		txn.NoticeError(err)
-		lg(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR DURING CLEANUP JOB: %v", err))
+		logger.log(zerolog.ErrorLevel, fmt.Sprintf("ERROR DURING CLEANUP JOB: %v", err))
 		return
 	}
 
-	lg(logger, zerolog.InfoLevel, workerId, jobId, "Finished job")
+	logger.log(zerolog.InfoLevel, "Finished job")
 }
 
 func cleanupJob(ctx context.Context, jobId string) error {
@@ -178,9 +184,17 @@ func freeSlot(slotsChan chan<- struct{}) {
 	slotsChan <- struct{}{}
 }
 
-func lg(logger zerolog.Logger, level zerolog.Level, id int, jobId string, msg string) {
-	logger.WithLevel(level).
-		Str("goroutine", fmt.Sprintf("worker %v", id)).
-		Str("jobId", jobId).
-		Msg(fmt.Sprintf("[Worker %v] [%v] %v", id, jobId, msg))
+func newFcmLogger(ctx context.Context, workerId int, jobId string) fcmLogger {
+	return fcmLogger{
+		logger:   telemetry.NewLogger(ctx),
+		workerId: workerId,
+		jobId:    jobId,
+	}
+}
+
+func (fl *fcmLogger) log(level zerolog.Level, msg string) {
+	fl.logger.WithLevel(level).
+		Str("goroutine", fmt.Sprintf("worker %v", fl.workerId)).
+		Str("jobId", fl.jobId).
+		Msg(fmt.Sprintf("[Worker %v] [%v] %v", fl.workerId, fl.jobId, msg))
 }

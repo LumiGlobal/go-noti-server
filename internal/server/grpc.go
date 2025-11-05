@@ -69,8 +69,7 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 
 	logger.log(zerolog.InfoLevel, "Notification request received")
 	defer func() {
-		msg := fmt.Sprintf("Notification response returned. SendMessage call duration: %v", time.Since(start))
-		logger.log(zerolog.InfoLevel, msg)
+		logger.log(zerolog.InfoLevel, fmt.Sprintf("Notification response returned. SendMessage call duration: %v", time.Since(start)))
 	}()
 
 	seg := txn.StartSegment("MarshallingNotification")
@@ -126,7 +125,6 @@ func (s *healthCheckServer) Check(ctx context.Context, req *pbh.HealthCheckReque
 }
 
 func AuthInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-
 	token := extractFromContext(ctx)
 	if !isTokenValid(token) {
 		telemetry.LogWithContext(zerolog.WarnLevel, "invalid auth token", ctx)
