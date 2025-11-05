@@ -98,20 +98,27 @@ func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
 	//msg := fmt.Sprintf("FCM message sent | FCM Time: %v, SuccessCount: %v, FailureCount: %v", time.Since(t), resp.SuccessCount, resp.FailureCount)
 	//log(logger, zerolog.InfoLevel, workerId, jobId, msg)
 
-	err = datastore.RemoveJobIdFromProcessing(ctx, jobId)
+	err = cleanupJob(ctx, jobId)
 	if err != nil {
 		txn.NoticeError(err)
-		log(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR REMOVING JOB ID FROM PROCESSING: %v", err))
+		log(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR DURING CLEANUP JOB: %v", err))
 		return
 	}
 
+	log(logger, zerolog.InfoLevel, workerId, jobId, "Finished job")
+}
+
+func cleanupJob(ctx context.Context, jobId string) error {
+	err := datastore.RemoveJobIdFromProcessing(ctx, jobId)
+	if err != nil {
+		return fmt.Errorf("error removing job id from processing: %v", err)
+	}
 	err = datastore.RemovePayload(ctx, jobId)
 	if err != nil {
-		txn.NoticeError(err)
-		log(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR REMOVING PAYLOAD: %v", err))
-		return
+		return fmt.Errorf("error removing payload: %v", err)
 	}
-	log(logger, zerolog.InfoLevel, workerId, jobId, "Finished job")
+	telemetry.DeleteTraceHeaders(jobId)
+	return nil
 }
 
 func getFcmMessage(notification *pb.NotificationPackage) *messaging.MulticastMessage {

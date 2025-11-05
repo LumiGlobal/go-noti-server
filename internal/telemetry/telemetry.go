@@ -76,6 +76,12 @@ func GetTraceHeaders(key string) (http.Header, bool) {
 	return header, ok
 }
 
+func DeleteTraceHeaders(key string) {
+	traceHeadersMap.mu.Lock()
+	delete(traceHeadersMap.m, key)
+	traceHeadersMap.mu.Unlock()
+}
+
 func newLogger() zerolog.Logger {
 	return zerolog.New(newWriter()).
 		Level(zerolog.InfoLevel).
