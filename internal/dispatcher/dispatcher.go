@@ -18,27 +18,34 @@ func Run(slotsChan chan struct{}, jobsChan chan<- string) {
 
 		t := time.Now()
 		<-slotsChan
-		logger.Debug().Msg(fmt.Sprintf("[Dispatcher] Free slot available after %v", time.Since(t)))
+		logger.Debug().
+			Str("goroutine", "dispatcher").
+			Msg(fmt.Sprintf("[Dispatcher] Free slot available after %v", time.Since(t)))
 
 		t = time.Now()
 		jobId, err := datastore.MoveJobToProcessing(ctx)
 		if err != nil {
 			txn.NoticeError(err)
-			logger.Error().Msg(fmt.Sprintf("[Dispatcher] ERROR MOVING JOB ID FROM JOBS TO PROCESSING: %v", err))
+			logger.Error().
+				Str("goroutine", "dispatcher").
+				Msg(fmt.Sprintf("[Dispatcher] ERROR MOVING JOB ID FROM JOBS TO PROCESSING: %v", err))
 			slotsChan <- struct{}{}
 			continue
 		}
 		logger.Debug().
+			Str("goroutine", "dispatcher").
 			Str("jobId", jobId).
 			Msg(fmt.Sprintf("[Dispatcher] [%v] Received job after waiting %v", jobId, time.Since(t)))
 
 		logger.Debug().
+			Str("goroutine", "dispatcher").
 			Str("jobId", jobId).
 			Msg(fmt.Sprintf("[Dispatcher] [%v] BLMOVE from jobs to processing", jobId))
 
 		jobsChan <- jobId
 
 		logger.Info().
+			Str("goroutine", "dispatcher").
 			Str("jobId", jobId).
 			Msg(fmt.Sprintf("[Dispatcher] [%v] pushed to jobsChan", jobId))
 

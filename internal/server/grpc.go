@@ -96,7 +96,8 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 	if !unique {
-		msg := "Notification payload not unique!"
+		msg := "notification payload not unique"
+		txn.NoticeError(fmt.Errorf(msg))
 		log(logger, zerolog.WarnLevel, notification, jobId, msg)
 		return nil, status.Errorf(codes.AlreadyExists, msg)
 	}

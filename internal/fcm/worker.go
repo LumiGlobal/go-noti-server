@@ -7,6 +7,7 @@ import (
 	"go-noti-server/internal/telemetry"
 	pb "go-noti-server/protos/notifications"
 	"net/http"
+	"time"
 
 	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/rs/zerolog"
@@ -49,6 +50,9 @@ func Worker(id int, jobsChan <-chan string, slotsChan chan<- struct{}) {
 		seg.End()
 		log(logger, zerolog.DebugLevel, id, jobId, "unmarshalled payload data")
 
+		time.Sleep(20 * time.Second)
+		log(logger, zerolog.InfoLevel, id, jobId, "payload sent to FCM")
+
 		slotsChan <- struct{}{}
 
 		txn.End()
@@ -57,6 +61,7 @@ func Worker(id int, jobsChan <-chan string, slotsChan chan<- struct{}) {
 
 func log(logger zerolog.Logger, level zerolog.Level, id int, jobId string, msg string) {
 	logger.WithLevel(level).
+		Str("goroutine", fmt.Sprintf("worker %v", id)).
 		Str("jobId", jobId).
 		Msg(fmt.Sprintf("[Worker %v] [%v] %v", id, jobId, msg))
 }
