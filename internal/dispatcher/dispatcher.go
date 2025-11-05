@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"go-noti-server/internal/datastore"
 	"go-noti-server/internal/telemetry"
-	"time"
 
 	"github.com/newrelic/go-agent/v3/newrelic"
 )
@@ -16,13 +15,8 @@ func Run(slotsChan chan struct{}, jobsChan chan<- string) {
 		ctx := newrelic.NewContext(context.Background(), txn)
 		logger := telemetry.NewLogger(ctx)
 
-		t := time.Now()
 		<-slotsChan
-		logger.Debug().
-			Str("goroutine", "dispatcher").
-			Msg(fmt.Sprintf("[Dispatcher] Free slot available after %v", time.Since(t)))
 
-		t = time.Now()
 		jobId, err := datastore.MoveJobToProcessing(ctx)
 		if err != nil {
 			txn.NoticeError(err)
@@ -32,15 +26,6 @@ func Run(slotsChan chan struct{}, jobsChan chan<- string) {
 			slotsChan <- struct{}{}
 			continue
 		}
-		logger.Debug().
-			Str("goroutine", "dispatcher").
-			Str("jobId", jobId).
-			Msg(fmt.Sprintf("[Dispatcher] [%v] Received job after waiting %v", jobId, time.Since(t)))
-
-		logger.Debug().
-			Str("goroutine", "dispatcher").
-			Str("jobId", jobId).
-			Msg(fmt.Sprintf("[Dispatcher] [%v] BLMOVE from jobs to processing", jobId))
 
 		jobsChan <- jobId
 

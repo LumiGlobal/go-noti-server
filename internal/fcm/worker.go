@@ -59,7 +59,7 @@ func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
 	ctx := newrelic.NewContext(context.Background(), txn)
 
 	logger := telemetry.NewLogger(ctx)
-	log(logger, zerolog.InfoLevel, workerId, jobId, "received jobId")
+	log(logger, zerolog.InfoLevel, workerId, jobId, "Starting job")
 
 	data, err := datastore.GetPayloadFromJobId(ctx, jobId)
 	if err != nil {
@@ -67,7 +67,6 @@ func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
 		log(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR RETRIEVING PAYLOAD: %v", err))
 		return
 	}
-	log(logger, zerolog.DebugLevel, workerId, jobId, "retrieve payload")
 
 	seg := txn.StartSegment("UnmarshallingNotification")
 	var notification pb.NotificationPackage
@@ -78,26 +77,41 @@ func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
 		return
 	}
 	seg.End()
-	log(logger, zerolog.DebugLevel, workerId, jobId, "unmarshalled payload data")
 
-	fcmMsg := getFcmMessage(&notification)
+	//fcmMsg := getFcmMessage(&notification)
 	seg = txn.StartSegment("SendingFCMMessage")
-	t := time.Now()
-	resp, err := client.SendEachForMulticastDryRun(ctx, fcmMsg)
+	time.Sleep(60 * time.Second)
+	//t := time.Now()
+	//resp, err := client.SendEachForMulticastDryRun(ctx, fcmMsg)
+	//if err != nil {
+	//	txn.NoticeError(err)
+	//	log(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR SENDING MESSAGE TO FCM: %v", err))
+	//	return
+	//}
+	//if resp == nil {
+	//	err := fmt.Errorf("BatchResponse is nil")
+	//	txn.NoticeError(err)
+	//	log(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR RESPONSE FROM FCM: %v", err))
+	//	return
+	//}
+	seg.End()
+	//msg := fmt.Sprintf("FCM message sent | FCM Time: %v, SuccessCount: %v, FailureCount: %v", time.Since(t), resp.SuccessCount, resp.FailureCount)
+	//log(logger, zerolog.InfoLevel, workerId, jobId, msg)
+
+	err = datastore.RemoveJobIdFromProcessing(ctx, jobId)
 	if err != nil {
 		txn.NoticeError(err)
-		log(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR SENDING MESSAGE TO FCM: %v", err))
+		log(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR REMOVING JOB ID FROM PROCESSING: %v", err))
 		return
 	}
-	if resp == nil {
-		err := fmt.Errorf("BatchResponse is nil")
+
+	err = datastore.RemovePayload(ctx, jobId)
+	if err != nil {
 		txn.NoticeError(err)
-		log(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR RESPONSE FROM FCM: %v", err))
+		log(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR REMOVING PAYLOAD: %v", err))
 		return
 	}
-	seg.End()
-	msg := fmt.Sprintf("FCM message sent | FCM Time: %v, SuccessCount: %v, FailureCount: %v", time.Since(t), resp.SuccessCount, resp.FailureCount)
-	log(logger, zerolog.InfoLevel, workerId, jobId, msg)
+	log(logger, zerolog.InfoLevel, workerId, jobId, "Finished job")
 }
 
 func getFcmMessage(notification *pb.NotificationPackage) *messaging.MulticastMessage {

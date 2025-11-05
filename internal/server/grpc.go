@@ -80,12 +80,10 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 		log(logger, zerolog.ErrorLevel, notification, jobId, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
-	log(logger, zerolog.DebugLevel, notification, jobId, "notification marshalled")
 	seg.End()
 
 	seg = txn.StartSegment("HashingNotification")
 	hash := xxhash.Sum64(data)
-	log(logger, zerolog.DebugLevel, notification, jobId, "notification hashed")
 	seg.End()
 
 	unique, err := datastore.AddJobPayloadHashToSet(ctx, hash)
@@ -101,7 +99,6 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 		log(logger, zerolog.WarnLevel, notification, jobId, msg)
 		return nil, status.Errorf(codes.AlreadyExists, msg)
 	}
-	log(logger, zerolog.DebugLevel, notification, jobId, "notification hash added to set")
 
 	err = datastore.SetJobIdToPayload(ctx, jobId, data)
 	if err != nil {
@@ -110,9 +107,7 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 		log(logger, zerolog.ErrorLevel, notification, jobId, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
-	log(logger, zerolog.DebugLevel, notification, jobId, fmt.Sprintf("jobId %v set to payload", jobId))
 
-	log(logger, zerolog.DebugLevel, notification, jobId, fmt.Sprintf("adding jobId %v to jobs queue", jobId))
 	err = datastore.PushJobIdToJobsQueue(ctx, jobId)
 	if err != nil {
 		txn.NoticeError(err)
@@ -129,7 +124,6 @@ func (s *healthCheckServer) Check(ctx context.Context, req *pbh.HealthCheckReque
 }
 
 func AuthInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	telemetry.LogWithContext(zerolog.DebugLevel, "auth intercept", ctx)
 
 	token := extractFromContext(ctx)
 	if !isTokenValid(token) {
