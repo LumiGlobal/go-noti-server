@@ -80,7 +80,75 @@ func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
 	seg.End()
 	log(logger, zerolog.DebugLevel, workerId, jobId, "unmarshalled payload data")
 
-	time.Sleep(30 * time.Second)
+	fcmMsg := getFcmMessage(&notification)
+	seg = txn.StartSegment("SendingFCMMessage")
+	t := time.Now()
+	resp, err := client.SendEachForMulticastDryRun(ctx, fcmMsg)
+	if err != nil {
+		txn.NoticeError(err)
+		log(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR SENDING MESSAGE TO FCM: %v", err))
+		return
+	}
+	if resp == nil {
+		err := fmt.Errorf("BatchResponse is nil")
+		txn.NoticeError(err)
+		log(logger, zerolog.ErrorLevel, workerId, jobId, fmt.Sprintf("ERROR RESPONSE FROM FCM: %v", err))
+		return
+	}
+	seg.End()
+	msg := fmt.Sprintf("FCM message sent | FCM Time: %v, SuccessCount: %v, FailureCount: %v", time.Since(t), resp.SuccessCount, resp.FailureCount)
+	log(logger, zerolog.InfoLevel, workerId, jobId, msg)
+}
+
+func getFcmMessage(notification *pb.NotificationPackage) *messaging.MulticastMessage {
+	var channelId string
+
+	value, ok := notification.Data["channelId"]
+	if ok {
+		channelId = value
+	}
+	return &messaging.MulticastMessage{
+		Android: &messaging.AndroidConfig{
+			Priority: "high",
+			Notification: &messaging.AndroidNotification{
+				Title:     notification.Title,
+				Body:      notification.Body,
+				ImageURL:  notification.Image,
+				ChannelID: channelId,
+				Proxy:     messaging.ProxyDeny,
+			},
+			Data: notification.Data,
+		},
+		APNS: &messaging.APNSConfig{
+			Headers: map[string]string{
+				"apns-priority": "10",
+			},
+			Payload: &messaging.APNSPayload{
+				Aps: &messaging.Aps{
+					Alert: &messaging.ApsAlert{
+						Title:       notification.Title,
+						Body:        notification.Body,
+						LaunchImage: notification.Image,
+					},
+					Sound: "default",
+				},
+				CustomData: map[string]interface{}{
+					"image-url": notification.Image,
+					"data":      notification.Data,
+				},
+			},
+		},
+		Notification: &messaging.Notification{
+			Title:    notification.Title,
+			Body:     notification.Body,
+			ImageURL: notification.Image,
+		},
+		FCMOptions: &messaging.FCMOptions{
+			AnalyticsLabel: notification.AnalyticsLabel,
+		},
+		Tokens: notification.DeviceTokens,
+		Data:   notification.Data,
+	}
 }
 
 func freeSlot(slotsChan chan<- struct{}) {
