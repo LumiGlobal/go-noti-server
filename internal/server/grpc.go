@@ -60,18 +60,13 @@ func RunGrpcServer() {
 
 func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (*pb.NotificationResponse, error) {
 	start := time.Now()
-
 	txn := newrelic.FromContext(ctx)
 	defer txn.End()
-
 	jobId := txn.GetTraceMetadata().TraceID
-
-	traceHeaders := http.Header{}
-	txn.InsertDistributedTraceHeaders(traceHeaders)
-	telemetry.AddTraceHeaders(jobId, traceHeaders)
-
+	addTraceHeadersToTelemetry(txn, jobId)
 	notification := req.GetNotification()
 	logger := newGrpcLogger(ctx, notification, jobId)
+
 	logger.log(zerolog.InfoLevel, "Notification request received")
 	defer func() {
 		msg := fmt.Sprintf("Notification response returned. SendMessage call duration: %v", time.Since(start))
@@ -146,6 +141,12 @@ func newGrpcLogger(ctx context.Context, notification *pb.NotificationPackage, jo
 		notification: notification,
 		jobId:        jobId,
 	}
+}
+
+func addTraceHeadersToTelemetry(txn *newrelic.Transaction, jobId string) {
+	traceHeaders := http.Header{}
+	txn.InsertDistributedTraceHeaders(traceHeaders)
+	telemetry.AddTraceHeaders(jobId, traceHeaders)
 }
 
 func (gl *grpcLogger) log(level zerolog.Level, msg string) {
