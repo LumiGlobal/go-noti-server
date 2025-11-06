@@ -25,12 +25,6 @@ var (
 	client *messaging.Client
 )
 
-type fcmLogger struct {
-	logger   zerolog.Logger
-	workerId int
-	jobId    string
-}
-
 func init() {
 	config.LoadEnv()
 	var err error
@@ -87,9 +81,9 @@ func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
 	seg.End()
 
 	seg = txn.StartSegment("SendFCMMessage")
-	fcmMsg := getFcmMessage(&notification)
+	multicastMsg := newMulticastMessage(&notification)
 	t := time.Now()
-	resp, err := client.SendEachForMulticast(ctx, fcmMsg)
+	resp, err := client.SendEachForMulticast(ctx, multicastMsg)
 	if err != nil {
 		txn.NoticeError(err)
 		logger.log(zerolog.ErrorLevel, fmt.Sprintf("ERROR SENDING MESSAGE TO FCM: %v", err))
@@ -102,7 +96,7 @@ func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
 		return
 	}
 	seg.End()
-	msg := fmt.Sprintf("FCM message sent | FCM Time: %v, SuccessCount: %v, FailureCount: %v", time.Since(t), resp.SuccessCount, resp.FailureCount)
+	msg := fmt.Sprintf("FCM message sent | FCM Time: %v, TotalTokens: %v, SuccessCount: %v, FailureCount: %v", time.Since(t), len(multicastMsg.Tokens), resp.SuccessCount, resp.FailureCount)
 	logger.log(zerolog.InfoLevel, msg)
 
 	err = cleanupJob(ctx, jobId)
@@ -115,20 +109,32 @@ func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
 	logger.log(zerolog.InfoLevel, "Finished job")
 }
 
-func cleanupJob(ctx context.Context, jobId string) error {
-	err := datastore.RemoveJobIdFromProcessing(ctx, jobId)
-	if err != nil {
-		return fmt.Errorf("error removing job id from processing: %v", err)
-	}
-	err = datastore.RemovePayload(ctx, jobId)
-	if err != nil {
-		return fmt.Errorf("error removing payload: %v", err)
-	}
-	telemetry.DeleteTraceHeaders(jobId)
-	return nil
+func freeSlot(slotsChan chan<- struct{}) {
+	slotsChan <- struct{}{}
 }
 
-func getFcmMessage(notification *pb.NotificationPackage) *messaging.MulticastMessage {
+type fcmLogger struct {
+	logger   zerolog.Logger
+	workerId int
+	jobId    string
+}
+
+func (fl *fcmLogger) log(level zerolog.Level, msg string) {
+	fl.logger.WithLevel(level).
+		Str("goroutine", fmt.Sprintf("worker %v", fl.workerId)).
+		Str("jobId", fl.jobId).
+		Msg(fmt.Sprintf("[Worker %v] [%v] %v", fl.workerId, fl.jobId, msg))
+}
+
+func newFcmLogger(ctx context.Context, workerId int, jobId string) fcmLogger {
+	return fcmLogger{
+		logger:   telemetry.NewLogger(ctx),
+		workerId: workerId,
+		jobId:    jobId,
+	}
+}
+
+func newMulticastMessage(notification *pb.NotificationPackage) *messaging.MulticastMessage {
 	var channelId string
 
 	value, ok := notification.Data["channelId"]
@@ -179,21 +185,15 @@ func getFcmMessage(notification *pb.NotificationPackage) *messaging.MulticastMes
 	}
 }
 
-func freeSlot(slotsChan chan<- struct{}) {
-	slotsChan <- struct{}{}
-}
-
-func newFcmLogger(ctx context.Context, workerId int, jobId string) fcmLogger {
-	return fcmLogger{
-		logger:   telemetry.NewLogger(ctx),
-		workerId: workerId,
-		jobId:    jobId,
+func cleanupJob(ctx context.Context, jobId string) error {
+	err := datastore.RemoveJobIdFromProcessing(ctx, jobId)
+	if err != nil {
+		return fmt.Errorf("error removing job id from processing: %v", err)
 	}
-}
-
-func (fl *fcmLogger) log(level zerolog.Level, msg string) {
-	fl.logger.WithLevel(level).
-		Str("goroutine", fmt.Sprintf("worker %v", fl.workerId)).
-		Str("jobId", fl.jobId).
-		Msg(fmt.Sprintf("[Worker %v] [%v] %v", fl.workerId, fl.jobId, msg))
+	err = datastore.RemovePayload(ctx, jobId)
+	if err != nil {
+		return fmt.Errorf("error removing payload: %v", err)
+	}
+	telemetry.DeleteTraceHeaders(jobId)
+	return nil
 }
