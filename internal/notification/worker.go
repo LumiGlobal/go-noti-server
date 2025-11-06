@@ -1,4 +1,4 @@
-package fcm
+package notification
 
 import (
 	"context"
@@ -52,17 +52,11 @@ func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
 
 	txn := telemetry.App.StartTransaction(fmt.Sprintf("Worker %v", workerId))
 	defer txn.End()
-
-	traceHeaders, _ := telemetry.GetTraceHeaders(jobId)
-	if traceHeaders == nil {
-		traceHeaders = http.Header{}
-	}
-	txn.AcceptDistributedTraceHeaders(newrelic.TransportOther, traceHeaders)
+	continueDistributedTracing(txn, jobId)
 	ctx := newrelic.NewContext(context.Background(), txn)
-
 	logger := newFcmLogger(ctx, workerId, jobId)
-	logger.log(zerolog.InfoLevel, "starting job")
 
+	logger.log(zerolog.InfoLevel, "starting job")
 	data, err := datastore.GetPayloadFromJobId(ctx, jobId)
 	if err != nil {
 		txn.NoticeError(err)
@@ -90,7 +84,7 @@ func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
 		return
 	}
 	if resp == nil {
-		err := fmt.Errorf("BatchResponse is nil")
+		err = fmt.Errorf("BatchResponse is nil")
 		txn.NoticeError(err)
 		logger.log(zerolog.ErrorLevel, fmt.Sprintf("ERROR RESPONSE FROM FCM: %v", err))
 		return
@@ -111,6 +105,14 @@ func processJob(workerId int, jobId string, slotsChan chan<- struct{}) {
 
 func freeSlot(slotsChan chan<- struct{}) {
 	slotsChan <- struct{}{}
+}
+
+func continueDistributedTracing(txn *newrelic.Transaction, jobId string) {
+	traceHeaders, _ := telemetry.GetTraceHeaders(jobId)
+	if traceHeaders == nil {
+		traceHeaders = http.Header{}
+	}
+	txn.AcceptDistributedTraceHeaders(newrelic.TransportOther, traceHeaders)
 }
 
 type fcmLogger struct {

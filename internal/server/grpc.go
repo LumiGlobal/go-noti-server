@@ -52,9 +52,10 @@ func RunGrpcServer() {
 }
 
 func AuthInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	logger := telemetry.NewLogger(ctx)
 	token := extractFromContext(ctx)
 	if !isTokenValid(token) {
-		telemetry.LogWithContext(zerolog.WarnLevel, "invalid auth token", ctx)
+		logger.Warn().Msg("invalid auth token")
 		return nil, status.Errorf(codes.Unauthenticated, "token invalid")
 	}
 	return handler(ctx, req)

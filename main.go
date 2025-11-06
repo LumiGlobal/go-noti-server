@@ -4,7 +4,7 @@ import (
 	"context"
 	"go-noti-server/internal/datastore"
 	"go-noti-server/internal/dispatcher"
-	"go-noti-server/internal/fcm"
+	"go-noti-server/internal/notification"
 	"go-noti-server/internal/server"
 )
 
@@ -18,7 +18,7 @@ func main() {
 		slotsChan <- struct{}{}
 	}
 	for i := 0; i < numWorkers; i++ {
-		go fcm.Worker(i, jobsChan, slotsChan)
+		go notification.Worker(i, jobsChan, slotsChan)
 	}
 
 	go dispatcher.Run(slotsChan, jobsChan)

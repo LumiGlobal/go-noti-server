@@ -2,7 +2,6 @@ package telemetry
 
 import (
 	"context"
-	"fmt"
 	"go-noti-server/config"
 	"log"
 	"net/http"
@@ -52,13 +51,6 @@ func NewLogger(ctx context.Context) zerolog.Logger {
 	w := newWriter()
 	txnWriter := w.WithContext(ctx)
 	return newLogger().Output(txnWriter)
-}
-
-func LogWithContext(level zerolog.Level, msg string, ctx context.Context) {
-	txnlogger := NewLogger(ctx)
-	txn := newrelic.FromContext(ctx)
-	metadata := txn.GetTraceMetadata()
-	txnlogger.WithLevel(level).Msg(fmt.Sprintf("[%v] %v", metadata.TraceID, msg))
 }
 
 func Log(level zerolog.Level, msg string) {
