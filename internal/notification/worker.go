@@ -33,11 +33,11 @@ func init() {
 	ctx := context.Background()
 	app, err = firebase.NewApp(ctx, nil, opts)
 	if err != nil {
-		log.Fatalf(fmt.Sprintf("error creating new firebase app: %v", err))
+		log.Fatalf(fmt.Sprintf("error creating firebase app: %v", err))
 	}
 	client, err = app.Messaging(ctx)
 	if err != nil {
-		log.Fatalf(fmt.Sprintf("error creating new firebase client: %v", err))
+		log.Fatalf(fmt.Sprintf("error creating fcm client: %v", err))
 	}
 }
 

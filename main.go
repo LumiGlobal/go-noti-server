@@ -12,6 +12,7 @@ const numWorkers = 15
 
 func main() {
 	datastore.RequeueUnfinishedJobs(context.Background())
+
 	slotsChan := make(chan struct{}, numWorkers)
 	jobsChan := make(chan string, numWorkers)
 	for i := 0; i < numWorkers; i++ {

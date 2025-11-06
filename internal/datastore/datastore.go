@@ -12,6 +12,7 @@ import (
 
 	"github.com/newrelic/go-agent/v3/integrations/nrredis-v9"
 	"github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/v9/maintnotifications"
 	"github.com/rs/zerolog"
 )
 
@@ -26,12 +27,13 @@ var client *redis.Client
 func init() {
 	config.LoadEnv()
 	opts := &redis.Options{
-		Addr:         os.Getenv("REDIS_ADDR"),
-		PoolSize:     2,
-		MinIdleConns: 1,
-		ReadTimeout:  -1,
-		WriteTimeout: 5 * time.Second,
-		DialTimeout:  5 * time.Second,
+		Addr:                     os.Getenv("REDIS_ADDR"),
+		PoolSize:                 2,
+		MinIdleConns:             1,
+		ReadTimeout:              -1,
+		WriteTimeout:             5 * time.Second,
+		DialTimeout:              5 * time.Second,
+		MaintNotificationsConfig: &maintnotifications.Config{Mode: maintnotifications.ModeDisabled},
 	}
 	client = redis.NewClient(opts)
 	client.AddHook(nrredis.NewHook(opts))

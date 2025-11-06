@@ -44,7 +44,6 @@ func RunGrpcServer() {
 	pbh.RegisterHealthServiceServer(s, &healthCheckServer{})
 
 	telemetry.Log(zerolog.InfoLevel, fmt.Sprintf("server listening at %v", lis.Addr()))
-
 	err = s.Serve(lis)
 	if err != nil {
 		telemetry.Log(zerolog.FatalLevel, fmt.Sprintf("failed to serve: %v", err))
@@ -92,7 +91,6 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	distributeTracing(txn, jobId)
 
 	notification := req.GetNotification()
-
 	logger := newGrpcLogger(ctx, notification, jobId)
 	logger.log(zerolog.InfoLevel, "Notification request received")
 	defer func() {
@@ -100,11 +98,10 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	}()
 
 	seg := txn.StartSegment("MarshallingNotification")
-	marshaller := proto.MarshalOptions{Deterministic: true}
-	data, err := marshaller.Marshal(notification)
+	data, err := proto.MarshalOptions{Deterministic: true}.Marshal(notification)
 	if err != nil {
 		txn.NoticeError(err)
-		msg := fmt.Sprintf("error marshalling notification: %v", err)
+		msg := fmt.Sprintf("ERROR MARSHALLING NOTIFICATION: %v", err)
 		logger.log(zerolog.ErrorLevel, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
@@ -114,14 +111,14 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	hash := xxhash.Sum64(data)
 	seg.End()
 
-	unique, err := datastore.AddJobPayloadHashToSet(ctx, hash)
+	uniquePayload, err := datastore.AddJobPayloadHashToSet(ctx, hash)
 	if err != nil {
 		txn.NoticeError(err)
 		msg := fmt.Sprintf("ERROR ADDING %v TO SET: %v", hash, err)
 		logger.log(zerolog.ErrorLevel, msg)
 		return nil, status.Errorf(codes.Internal, msg)
 	}
-	if !unique {
+	if !uniquePayload {
 		msg := "notification payload not unique"
 		txn.NoticeError(fmt.Errorf(msg))
 		logger.log(zerolog.WarnLevel, msg)
@@ -168,7 +165,8 @@ func newGrpcLogger(ctx context.Context, notification *pb.NotificationPackage, jo
 }
 
 func (gl *grpcLogger) log(level zerolog.Level, msg string) {
-	gl.logger.WithLevel(level).
+	gl.logger.
+		WithLevel(level).
 		Str("title", gl.notification.Title).
 		Str("body", gl.notification.Body).
 		Str("path", gl.notification.Data["path"]).

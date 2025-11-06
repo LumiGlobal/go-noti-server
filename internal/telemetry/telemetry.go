@@ -66,8 +66,8 @@ func AddTraceHeaders(key string, traceHeaders http.Header) {
 func GetTraceHeaders(key string) (http.Header, bool) {
 	traceHeadersMap.mu.Lock()
 	defer traceHeadersMap.mu.Unlock()
-	header, ok := traceHeadersMap.m[key]
-	return header, ok
+	traceHeaders, ok := traceHeadersMap.m[key]
+	return traceHeaders, ok
 }
 
 func DeleteTraceHeaders(key string) {
