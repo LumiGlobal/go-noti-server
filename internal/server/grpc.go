@@ -31,42 +31,68 @@ type healthCheckServer struct {
 	pbh.UnimplementedHealthServiceServer
 }
 
-type grpcLogger struct {
-	logger       zerolog.Logger
-	notification *pb.NotificationPackage
-	jobId        string
-}
-
 func RunGrpcServer() {
-	var (
-		port     = os.Getenv("PORT")
-		lis, err = net.Listen("tcp", port)
-		s        = grpc.NewServer(grpc.ChainUnaryInterceptor(nrgrpc.UnaryServerInterceptor(telemetry.App), AuthInterceptor))
-	)
+	port := os.Getenv("PORT")
+	lis, err := net.Listen("tcp", port)
+	if err != nil {
+		telemetry.Log(zerolog.FatalLevel, fmt.Sprintf("failed to listen: %v", err))
+	}
+
+	s := grpc.NewServer(grpc.ChainUnaryInterceptor(nrgrpc.UnaryServerInterceptor(telemetry.App), AuthInterceptor))
 
 	pb.RegisterNotificationServiceServer(s, &server{})
 	pbh.RegisterHealthServiceServer(s, &healthCheckServer{})
 
 	telemetry.Log(zerolog.InfoLevel, fmt.Sprintf("server listening at %v", lis.Addr()))
 
+	err = s.Serve(lis)
 	if err != nil {
-		telemetry.Log(zerolog.FatalLevel, fmt.Sprintf("failed to listen: %v", err))
-	}
-
-	if err := s.Serve(lis); err != nil {
 		telemetry.Log(zerolog.FatalLevel, fmt.Sprintf("failed to serve: %v", err))
 	}
 }
 
+func AuthInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	token := extractFromContext(ctx)
+	if !isTokenValid(token) {
+		telemetry.LogWithContext(zerolog.WarnLevel, "invalid auth token", ctx)
+		return nil, status.Errorf(codes.Unauthenticated, "token invalid")
+	}
+	return handler(ctx, req)
+}
+
+func extractFromContext(ctx context.Context) string {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return ""
+	}
+
+	tokens := md.Get("Authorization")
+	if len(tokens) == 0 {
+		return ""
+	}
+	return tokens[0]
+}
+
+func isTokenValid(token string) bool {
+	authed := os.Getenv("AUTHED")
+	return token == authed
+}
+
+func (s *healthCheckServer) Check(ctx context.Context, req *pbh.HealthCheckRequest) (*pbh.HealthCheckResponse, error) {
+	return &pbh.HealthCheckResponse{Message: "Alive"}, nil
+}
+
 func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (*pb.NotificationResponse, error) {
 	start := time.Now()
+
 	txn := newrelic.FromContext(ctx)
 	defer txn.End()
 	jobId := txn.GetTraceMetadata().TraceID
-	addTraceHeadersToTelemetry(txn, jobId)
-	notification := req.GetNotification()
-	logger := newGrpcLogger(ctx, notification, jobId)
+	distributeTracing(txn, jobId)
 
+	notification := req.GetNotification()
+
+	logger := newGrpcLogger(ctx, notification, jobId)
 	logger.log(zerolog.InfoLevel, "Notification request received")
 	defer func() {
 		logger.log(zerolog.InfoLevel, fmt.Sprintf("Notification response returned. SendMessage call duration: %v", time.Since(start)))
@@ -120,17 +146,16 @@ func (s *server) SendMessage(ctx context.Context, req *pb.NotificationRequest) (
 	return &pb.NotificationResponse{Message: "Message Received"}, nil
 }
 
-func (s *healthCheckServer) Check(ctx context.Context, req *pbh.HealthCheckRequest) (*pbh.HealthCheckResponse, error) {
-	return &pbh.HealthCheckResponse{Message: "Alive"}, nil
+func distributeTracing(txn *newrelic.Transaction, jobId string) {
+	traceHeaders := http.Header{}
+	txn.InsertDistributedTraceHeaders(traceHeaders)
+	telemetry.AddTraceHeaders(jobId, traceHeaders)
 }
 
-func AuthInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	token := extractFromContext(ctx)
-	if !isTokenValid(token) {
-		telemetry.LogWithContext(zerolog.WarnLevel, "invalid auth token", ctx)
-		return nil, status.Errorf(codes.Unauthenticated, "token invalid")
-	}
-	return handler(ctx, req)
+type grpcLogger struct {
+	logger       zerolog.Logger
+	notification *pb.NotificationPackage
+	jobId        string
 }
 
 func newGrpcLogger(ctx context.Context, notification *pb.NotificationPackage, jobId string) grpcLogger {
@@ -139,12 +164,6 @@ func newGrpcLogger(ctx context.Context, notification *pb.NotificationPackage, jo
 		notification: notification,
 		jobId:        jobId,
 	}
-}
-
-func addTraceHeadersToTelemetry(txn *newrelic.Transaction, jobId string) {
-	traceHeaders := http.Header{}
-	txn.InsertDistributedTraceHeaders(traceHeaders)
-	telemetry.AddTraceHeaders(jobId, traceHeaders)
 }
 
 func (gl *grpcLogger) log(level zerolog.Level, msg string) {
@@ -156,22 +175,4 @@ func (gl *grpcLogger) log(level zerolog.Level, msg string) {
 		Str("contentType", gl.notification.Data["contentType"]).
 		Str("jobId", gl.jobId).
 		Msg(fmt.Sprintf("[SendMessage] [%v] %v", gl.jobId, msg))
-}
-
-func extractFromContext(ctx context.Context) string {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return ""
-	}
-
-	tokens := md.Get("Authorization")
-	if len(tokens) == 0 {
-		return ""
-	}
-	return tokens[0]
-}
-
-func isTokenValid(token string) bool {
-	authed := os.Getenv("AUTHED")
-	return token == authed
 }
